@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Lekha runtime data (regenerated on first run / per-user)
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+logs/*
+!logs/.gitkeep
+data/*
+!data/.gitkeep
+
+# Argos Translate model cache (downloaded by scripts/download_models.py)
+.local/share/argos-translate/
+.argos-translate/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

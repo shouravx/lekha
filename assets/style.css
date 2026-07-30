@@ -1,0 +1,296 @@
+/* ===========================================================================
+   Lekha — Dark Glassmorphism Theme
+   Inspired by Notion, Linear, Raycast, and ChatGPT Desktop.
+   100% offline: uses the OS system font stack, no external font/CDN calls.
+   =========================================================================== */
+
+:root {
+  --bg-base: #0a0a0f;
+  --bg-elevated: #11121a;
+  --bg-card: rgba(255, 255, 255, 0.035);
+  --bg-card-hover: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --text-primary: #f2f3f7;
+  --text-secondary: #a3a7b7;
+  --text-muted: #6b6f80;
+
+  --accent: var(--accent-violet);
+  --accent-violet: #8b6df0;
+  --accent-violet-soft: rgba(139, 109, 240, 0.16);
+  --accent-blue: #5b9dff;
+  --accent-blue-soft: rgba(91, 157, 255, 0.16);
+  --accent-green: #3ecf8e;
+  --accent-green-soft: rgba(62, 207, 142, 0.16);
+  --accent-amber: #f0a84d;
+  --accent-amber-soft: rgba(240, 168, 77, 0.16);
+
+  --success: #3ecf8e;
+  --warning: #f0a84d;
+  --danger: #f06d6d;
+  --info: #5b9dff;
+
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+
+  --font-sans: -apple-system, "Segoe UI Variable", "Segoe UI", "SF Pro Display",
+    Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Base canvas                                                             */
+/* ---------------------------------------------------------------------- */
+html, body, [data-testid="stAppViewContainer"] {
+  background: radial-gradient(circle at 15% 0%, #15131f 0%, var(--bg-base) 45%) !important;
+  font-family: var(--font-sans) !important;
+  color: var(--text-primary);
+}
+
+[data-testid="stHeader"] {
+  background: transparent !important;
+}
+
+.block-container {
+  padding-top: 2rem !important;
+  padding-bottom: 3rem !important;
+  max-width: 1180px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+
+/* ---------------------------------------------------------------------- */
+/* Sidebar                                                                  */
+/* ---------------------------------------------------------------------- */
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #0d0c14 0%, #0a0a0f 100%) !important;
+  border-right: 1px solid var(--border-subtle);
+}
+[data-testid="stSidebar"] .block-container {
+  padding-top: 1.5rem;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 18px 4px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sidebar-brand .logo {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  background: linear-gradient(135deg, var(--accent) 0%, #5b9dff 100%);
+  box-shadow: 0 4px 16px var(--accent-violet-soft);
+}
+.sidebar-brand .title { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--text-primary); }
+.sidebar-brand .subtitle { font-size: 11px; color: var(--text-muted); margin-top: -2px; }
+
+/* Sidebar nav buttons */
+[data-testid="stSidebar"] .stButton button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 14.5px;
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.85rem;
+  margin-bottom: 2px;
+  transition: all 0.15s ease;
+  box-shadow: none !important;
+}
+[data-testid="stSidebar"] .stButton button:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+[data-testid="stSidebar"] .stButton button:focus:not(:active) {
+  color: var(--text-primary);
+}
+.nav-active button {
+  background: var(--accent-violet-soft) !important;
+  color: var(--text-primary) !important;
+  border-color: rgba(139, 109, 240, 0.35) !important;
+  font-weight: 600 !important;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Typography                                                               */
+/* ---------------------------------------------------------------------- */
+h1, h2, h3, h4 { color: var(--text-primary) !important; letter-spacing: -0.02em; font-weight: 700 !important; }
+p, span, label, .stMarkdown { color: var(--text-secondary); }
+.page-title { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+.page-subtitle { font-size: 14.5px; color: var(--text-muted); margin-bottom: 28px; }
+
+/* ---------------------------------------------------------------------- */
+/* Glass cards (native st.container(border=True) wrapper)                  */
+/* ---------------------------------------------------------------------- */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-lg) !important;
+  backdrop-filter: blur(18px);
+  padding: 4px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.no-card-style) {
+  background: transparent !important;
+  border: none !important;
+  backdrop-filter: none;
+}
+
+/* Custom raw-HTML cards (used for stat tiles, badges, log panels) */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  backdrop-filter: blur(18px);
+}
+.glass-card:hover { border-color: var(--border-strong); }
+
+/* Stat tiles */
+.stat-tile { display: flex; flex-direction: column; gap: 6px; }
+.stat-tile .stat-icon {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; margin-bottom: 6px;
+}
+.stat-tile .stat-value { font-size: 26px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
+.stat-tile .stat-label { font-size: 13px; color: var(--text-muted); }
+
+/* Status badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 600;
+  border: 1px solid transparent;
+}
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+.badge-running { background: var(--accent-blue-soft); color: var(--accent-blue); border-color: rgba(91,157,255,0.3); }
+.badge-running .badge-dot { background: var(--accent-blue); animation: pulse 1.4s infinite; }
+.badge-completed { background: var(--accent-green-soft); color: var(--accent-green); border-color: rgba(62,207,142,0.3); }
+.badge-completed .badge-dot { background: var(--accent-green); }
+.badge-failed { background: rgba(240,109,109,0.14); color: var(--danger); border-color: rgba(240,109,109,0.3); }
+.badge-failed .badge-dot { background: var(--danger); }
+.badge-cancelled { background: rgba(255,255,255,0.06); color: var(--text-muted); border-color: var(--border-subtle); }
+.badge-cancelled .badge-dot { background: var(--text-muted); }
+.badge-queued { background: var(--accent-amber-soft); color: var(--accent-amber); border-color: rgba(240,168,77,0.3); }
+.badge-queued .badge-dot { background: var(--accent-amber); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ---------------------------------------------------------------------- */
+/* Buttons                                                                  */
+/* ---------------------------------------------------------------------- */
+.stButton button, .stDownloadButton button {
+  border-radius: var(--radius-sm) !important;
+  font-weight: 600 !important;
+  border: 1px solid var(--border-subtle) !important;
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  transition: all 0.15s ease !important;
+}
+.stButton button:hover, .stDownloadButton button:hover {
+  border-color: var(--border-strong) !important;
+  background: var(--bg-card-hover) !important;
+}
+.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {
+  background: linear-gradient(135deg, var(--accent) 0%, #6e8ef5 100%) !important;
+  border: none !important;
+  color: #0a0a0f !important;
+  box-shadow: 0 6px 20px var(--accent-violet-soft);
+}
+.stButton button[kind="primary"]:hover { filter: brightness(1.08); }
+
+/* ---------------------------------------------------------------------- */
+/* Inputs                                                                   */
+/* ---------------------------------------------------------------------- */
+.stTextInput input, .stSelectbox div[data-baseweb="select"], .stTextArea textarea,
+.stNumberInput input {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+}
+[data-testid="stFileUploaderDropzone"] {
+  background: var(--bg-card) !important;
+  border: 1.5px dashed var(--border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+}
+[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--accent) !important; }
+
+/* Progress bar */
+[data-testid="stProgress"] div div {
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-blue) 100%) !important;
+  border-radius: 999px !important;
+}
+[data-testid="stProgress"] > div {
+  background: var(--bg-elevated) !important;
+  border-radius: 999px !important;
+}
+
+/* Metrics */
+[data-testid="stMetric"] {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+}
+[data-testid="stMetricValue"] { color: var(--text-primary) !important; }
+[data-testid="stMetricLabel"] { color: var(--text-muted) !important; }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--border-subtle); }
+.stTabs [data-baseweb="tab"] { color: var(--text-muted); font-weight: 600; }
+.stTabs [aria-selected="true"] { color: var(--text-primary) !important; }
+
+/* Expander */
+[data-testid="stExpander"] {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Log console */
+.log-console {
+  background: #06070a;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+  color: #9aa0ad;
+  max-height: 320px;
+  overflow-y: auto;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Dividers */
+hr { border-color: var(--border-subtle) !important; }
+
+/* Toggle / checkbox accent */
+[data-testid="stCheckbox"] label span:first-child,
+[data-baseweb="switch"] {
+  accent-color: var(--accent);
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+.empty-state .emoji { font-size: 40px; margin-bottom: 14px; }
