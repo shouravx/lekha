@@ -90,6 +90,15 @@ if not exist "data\.models_downloaded" (
     echo [3/5] Translation models already downloaded, skipping.
 )
 
+REM requests warns that chardet's version is outside the range it
+REM declares. It is harmless - requests prefers charset_normalizer,
+REM which is present and in range - but Streamlit imports requests
+REM before any app code runs, so this has to be set before Python starts.
+REM Filtered by module, not by message: PYTHONWARNINGS re.escapes the
+REM message field, so a pattern there never matches. warnings.filterwarnings
+REM in config.py does treat it as a regex, which is why that one works.
+set PYTHONWARNINGS=ignore:::requests
+
 REM --- 5. Local AI (optional, one-time) -------------------------------------
 REM Never fatal: setup_ai.py always exits 0, so a failure here can only
 REM cost the optional polish pass, never the launch. Set LEKHA_SKIP_AI=1

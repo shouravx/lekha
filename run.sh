@@ -64,6 +64,15 @@ else
     echo "[3/5] Translation models already downloaded, skipping."
 fi
 
+# requests warns that chardet's version is outside the range it declares.
+# Harmless - requests prefers charset_normalizer, which is present and in
+# range - but Streamlit imports requests before any app code runs, so this
+# has to be set before Python starts.
+# Filtered by module, not by message: PYTHONWARNINGS re.escapes the message
+# field, so a pattern there never matches. warnings.filterwarnings in
+# config.py does treat it as a regex, which is why that one works.
+export PYTHONWARNINGS="ignore:::requests"
+
 # --- 5. Local AI (optional, one-time) ------------------------------------------
 # setup_ai.py always exits 0, so a failure here costs the optional polish
 # pass and never the launch. Set LEKHA_SKIP_AI=1 to skip it entirely.

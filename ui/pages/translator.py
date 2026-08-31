@@ -280,39 +280,77 @@ def _render_engine_picker(settings: dict) -> tuple[TranslationBackend, bool]:
         )
 
         if refine_enabled:
-            from core.llm_refiner import LLMRefiner
-
-            refiner = LLMRefiner.instance()
-            refiner.configure(
-                base_url=settings.get("ollama_base_url", config.OLLAMA_BASE_URL),
-                model=refine_model,
-            )
-            if not refiner.is_available():
-                # Names the first step rather than assuming Ollama is
-                # merely stopped: on a machine that has never had it, "run
-                # ollama serve" is advice that cannot be followed.
-                st.warning(
-                    f"Nothing is answering at `{refiner.base_url}`, so the polish pass "
-                    "will be skipped — translation itself is unaffected.\n\n"
-                    "To enable it: install Ollama from ollama.com, then run "
-                    f"`ollama pull {refine_model}`. If it is already installed, start "
-                    "it with `ollama serve`.",
-                )
-            else:
-                installed = refiner.list_models()
-                if installed and refine_model not in installed:
-                    st.warning(
-                        f"Ollama is running but `{refine_model}` isn't installed. "
-                        f"Pull it with `ollama pull {refine_model}`, or pick an "
-                        "installed model in Settings → Translation.",
-                    )
-                else:
-                    st.caption(
-                        "This is the slowest stage by a wide margin — expect a long "
-                        "document to take considerably longer than translation alone."
-                    )
+            _render_refiner_readiness(settings, refine_model)
 
     return backend, refine_enabled
+
+
+def _render_refiner_readiness(settings: dict, refine_model: str) -> None:
+    """Reports whether the polish pass will actually run.
+
+    A bare ping at the port is not enough to answer that, and reporting on
+    the ping alone produced a warning that was both alarming and wrong: it
+    told the user to go and install Ollama from ollama.com on a machine
+    where Lekha had already installed it and pulled the model, and it said
+    the pass "will be skipped" when the app was about to start the server
+    itself. A stopped server is the normal resting state here — Lekha
+    stops the one it starts — so it is not on its own a problem.
+
+    The runtime status is queried live rather than through the refiner's
+    cached availability flag, which caches a miss for the life of the
+    process and so would keep reporting "unavailable" after the server
+    came up.
+    """
+    from services.ai_runtime import ai_runtime
+
+    base_url = settings.get("ollama_base_url", config.OLLAMA_BASE_URL)
+    status = ai_runtime.status(base_url)
+    auto_start = bool(settings.get("auto_start_ai", True))
+
+    if not status.installed:
+        st.warning(
+            "The local AI isn't installed yet, so the polish pass will be skipped — "
+            "translation itself is unaffected.\n\n"
+            "Lekha can install it for you: **Settings → Hybrid → Download and "
+            "install the local AI**. It is also done automatically the next time you "
+            "start Lekha through `run.bat` or `run.sh`.",
+        )
+        return
+
+    if not status.has_model(refine_model):
+        st.warning(
+            f"The runtime is installed but `{refine_model}` hasn't been pulled, so "
+            "the polish pass will be skipped.\n\n"
+            "Pull it from **Settings → Hybrid**, or let `run.bat` / `run.sh` do it on "
+            "the next start.",
+        )
+        return
+
+    # Measured on this machine: about 20 seconds per paragraph on CPU.
+    # "Slower" is not useful guidance when the real figure turns a
+    # half-minute job into a half-hour one, so it is stated outright.
+    cost = (
+        "Roughly 20 seconds per paragraph on CPU, so a long document can take "
+        "considerably longer than the translation itself."
+    )
+
+    if status.server_running:
+        st.caption(f"Ready. {cost}")
+        return
+
+    if auto_start:
+        st.caption(
+            f"Ready — `{refine_model}` is installed, and Lekha starts the AI server "
+            f"when the job begins. {cost}"
+        )
+        return
+
+    st.warning(
+        "The AI server isn't running and automatic start is switched off, so the "
+        "polish pass will be skipped.\n\n"
+        "Turn on **Start the AI server automatically** in Settings → Hybrid, or "
+        "start it there by hand.",
+    )
 
 
 def _submit_jobs(
