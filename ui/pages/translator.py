@@ -18,7 +18,7 @@ from services.file_service import (
 )
 from services.queue_service import job_manager
 from services.settings_service import settings_service
-from ui.icons import icon
+from ui.icons import button_icon_css, icon
 from ui.theme import page_header
 
 
@@ -61,7 +61,13 @@ def render() -> None:
             if "tgt_lang" not in st.session_state:
                 st.session_state["tgt_lang"] = settings.get("default_target_lang", "bn")
 
-            c1, c2, c3 = st.columns([5, 1, 5])
+            # The swap control sits under the two selects rather than in a
+            # hairline column between them. A [5, 1, 5] split gives the
+            # middle column about a tenth of the row, which cannot hold a
+            # button: it overflowed and painted on top of the "To" select.
+            # A control that only fits at one window width is not laid out,
+            # it is balanced.
+            c1, c2 = st.columns(2)
             with c1:
                 source_lang = st.selectbox(
                     "From",
@@ -70,21 +76,30 @@ def render() -> None:
                     index=lang_codes.index(st.session_state["src_lang"]),
                 )
             with c2:
-                st.write("")
-                st.write("")
-                if st.button("Swap", help="Swap the source and target languages"):
-                    st.session_state["src_lang"], st.session_state["tgt_lang"] = (
-                        st.session_state["tgt_lang"],
-                        st.session_state["src_lang"],
-                    )
-                    st.rerun()
-            with c3:
                 target_lang = st.selectbox(
                     "To",
                     options=lang_codes,
                     format_func=lambda c: lang_labels[c],
                     index=lang_codes.index(st.session_state["tgt_lang"]),
                 )
+
+            if st.button(
+                "Swap",
+                key="swap_langs",
+                help="Swap the source and target languages",
+                use_container_width=True,
+            ):
+                st.session_state["src_lang"], st.session_state["tgt_lang"] = (
+                    st.session_state["tgt_lang"],
+                    st.session_state["src_lang"],
+                )
+                st.rerun()
+            st.markdown(
+                "<style>"
+                + button_icon_css(".st-key-swap_langs button", "swap", 16)
+                + "</style>",
+                unsafe_allow_html=True,
+            )
 
             st.session_state["src_lang"] = source_lang
             st.session_state["tgt_lang"] = target_lang

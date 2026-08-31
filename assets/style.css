@@ -514,13 +514,63 @@ label, [data-testid="stWidgetLabel"] p {
 /* ---------------------------------------------------------------------- */
 /* Alerts                                                                  */
 /* ---------------------------------------------------------------------- */
+/* Alerts ship with their own fills, which are tuned for Streamlit's
+   palette and not this one — a warning arrived as a flat olive bar
+   against the glass. Each severity is repainted from its semantic token,
+   with the accent carried on a hairline rather than a heavy left bar. */
 [data-testid="stAlert"] {
   border-radius: var(--r-md) !important;
   border: 1px solid var(--glass-border) !important;
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
+  background: var(--glass-strong) !important;
+  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  box-shadow: inset 0 1px 0 var(--specular-soft);
+  padding: var(--space-3) var(--space-4) !important;
 }
-[data-testid="stAlert"] p { color: var(--text) !important; }
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] li,
+[data-testid="stAlert"] div { color: var(--text) !important; }
+[data-testid="stAlert"] code {
+  background: var(--field) !important;
+  color: var(--accent-text) !important;
+}
+[data-testid="stAlert"] a { color: var(--accent-text) !important; }
+
+/* The real structure is stAlert > stAlertContainer > stAlertContent<Kind>.
+   Painting only the outer element is not enough: stAlertContainer carries
+   its own fill (a raw rgba(255,227,18,.2) for a warning) which sits on
+   top and reads as a flat olive bar against the glass. The inner
+   container is cleared and the severity is painted on the outer element,
+   which is also the only one that knows the severity — via :has() on the
+   content child, since the kind lives there and not on a container. */
+[data-testid="stAlertContainer"] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) {
+  background: var(--info-soft) !important;
+  border-color: var(--info) !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) {
+  background: var(--success-soft) !important;
+  border-color: var(--success) !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) {
+  background: var(--warning-soft) !important;
+  border-color: var(--warning) !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) {
+  background: var(--danger-soft) !important;
+  border-color: var(--danger) !important;
+}
+
+/* The severity icon takes the severity colour, not the body colour. */
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) svg { fill: var(--info) !important; }
+[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) svg { fill: var(--success) !important; }
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) svg { fill: var(--warning) !important; }
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) svg { fill: var(--danger) !important; }
 
 /* Tabs */
 .stTabs [data-baseweb="tab-list"] {
