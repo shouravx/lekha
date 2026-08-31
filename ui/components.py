@@ -37,19 +37,49 @@ def render_sidebar(active_page: str) -> str:
             unsafe_allow_html=True,
         )
 
+        # The active item is highlighted by targeting the class Streamlit
+        # puts on the widget's own wrapper (st-key-<key>). The previous
+        # approach — emitting a <div class="nav-active"> around the
+        # st.button call — could never work: Streamlit renders raw HTML in
+        # its own container, so the div ended up as the button's *sibling*
+        # rather than its parent, and the rule matched nothing. It also
+        # cost two empty block elements per item, which is what left 50px
+        # of dead space between every nav button.
+        # This <style> lives inside the sidebar, which Streamlit renders
+        # earlier in the DOM than the main stylesheet — so at equal
+        # specificity the global `.stButton button:hover { ... !important }`
+        # rule wins on source order and the highlight disappears the
+        # moment the pointer is over the active item. The leading `body`
+        # raises specificity above it, and the :hover selector is matched
+        # explicitly so the active item keeps its colour while hovered.
+        active_selector = (
+            f'body [data-testid="stSidebar"] .st-key-nav_{active_page} button'
+        )
+        st.markdown(
+            "<style>"
+            f"{active_selector}, {active_selector}:hover {{"
+            "background: var(--accent-violet-soft) !important;"
+            "color: var(--text-primary) !important;"
+            "border-color: var(--accent) !important;"
+            "font-weight: 700 !important;"
+            "}"
+            f"{active_selector} p, {active_selector}:hover p {{"
+            "color: var(--text-primary) !important;"
+            "}"
+            "</style>",
+            unsafe_allow_html=True,
+        )
+
         selected = active_page
         for key, icon, label in NAV_ITEMS:
-            is_active = key == active_page
-            wrapper_class = "nav-active" if is_active else ""
-            st.markdown(f'<div class="{wrapper_class}">', unsafe_allow_html=True)
             if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
                 selected = key
-            st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("<div style='margin-top:auto'></div>", unsafe_allow_html=True)
+        import config
+
         st.markdown(
-            "<div style='position:fixed; bottom:18px; left:24px; font-size:11px; color:#6b6f80;'>"
-            "v1.0.0 · 100% local & offline</div>",
+            '<div class="sidebar-footer">'
+            f"v{config.APP_VERSION} · Offline by default</div>",
             unsafe_allow_html=True,
         )
 

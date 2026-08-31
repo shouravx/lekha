@@ -15,6 +15,22 @@ from ui.components import empty_state, language_label, stat_tile, status_badge_h
 from ui.theme import page_header
 
 
+def _format_timestamp(value: str) -> str:
+    """Renders a stored ISO timestamp as something readable.
+
+    The raw value ("2026-08-31T15:45:30") is both hard to scan and long
+    enough to wrap onto two lines in a narrow column.
+    """
+    if not value:
+        return ""
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(value).strftime("%d %b %Y, %H:%M")
+    except (ValueError, TypeError):
+        return value
+
+
 def _format_duration(seconds: float) -> str:
     seconds = int(seconds)
     if seconds < 60:
@@ -39,7 +55,7 @@ def render() -> None:
     with cols[0]:
         stat_tile("📄", str(stats["total_pages_translated"]), "Pages translated", "violet")
     with cols[1]:
-        stat_tile("✅", str(stats["completed_jobs"]), "Completed translations", "green")
+        stat_tile("✅", str(stats["completed_jobs"]), "Completed", "green")
     with cols[2]:
         stat_tile("⚡", "1" if active_job_id else "0", "Active job" + ("s" if queued_count else ""), "blue")
     with cols[3]:
@@ -57,7 +73,10 @@ def render() -> None:
         else:
             for e in entries:
                 with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 1])
+                    # The action column needs real width: at [3, 2, 1] it
+                    # was a sixth of an already two-thirds-width column,
+                    # which is too narrow for even a one-word button.
+                    c1, c2, c3 = st.columns([4, 2.4, 1.6])
                     with c1:
                         st.markdown(f"**{e.filename}**")
                         st.caption(
@@ -66,7 +85,7 @@ def render() -> None:
                         )
                     with c2:
                         st.markdown(status_badge_html(e.status), unsafe_allow_html=True)
-                        st.caption(e.completed_at or e.created_at)
+                        st.caption(_format_timestamp(e.completed_at or e.created_at))
                     with c3:
                         out_paths = list(e.output_paths.values())
                         if out_paths and st.button("Open", key=f"dash_open_{e.job_id}", use_container_width=True):

@@ -1,0 +1,23 @@
+# Streamlit server configuration for Lekha.
+#
+# maxUploadSize matters: Streamlit's own default is 200 MB, and it
+# rejects anything larger before the app ever sees the file. Lekha
+# advertises support for 1000+ page documents and its own ceiling
+# (config.MAX_FILE_SIZE_MB) defaults to 1024 MB, so without this the
+# uploader would refuse files the app is configured to accept — and the
+# dropzone would advertise the wrong limit.
+[server]
+maxUploadSize = 1024
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+# Lekha paints its own dark theme in assets/style.css. Declaring the base
+# here stops Streamlit flashing a light background before that CSS loads.
+base = "dark"
+backgroundColor = "#0a0a0f"
+secondaryBackgroundColor = "#11121a"
+textColor = "#f2f3f7"
+primaryColor = "#8b6df0"

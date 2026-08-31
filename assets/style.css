@@ -118,11 +118,18 @@ html, body, [data-testid="stAppViewContainer"] {
 [data-testid="stSidebar"] .stButton button:focus:not(:active) {
   color: var(--text-primary);
 }
-.nav-active button {
-  background: var(--accent-violet-soft) !important;
-  color: var(--text-primary) !important;
-  border-color: rgba(139, 109, 240, 0.35) !important;
-  font-weight: 600 !important;
+
+/* Nav items sit in their own stacked blocks; Streamlit's default block
+   gap left ~50px of dead air between 45px-tall buttons. */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.25rem; }
+[data-testid="stSidebar"] .stButton { margin-bottom: 0; }
+
+.sidebar-footer {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -160,8 +167,24 @@ p, span, label, .stMarkdown { color: var(--text-secondary); }
 }
 .glass-card:hover { border-color: var(--border-strong); }
 
-/* Stat tiles */
-.stat-tile { display: flex; flex-direction: column; gap: 6px; }
+/* Stat tiles — a fixed floor keeps the row even when one label wraps to
+   two lines, which otherwise leaves a single tile taller than its
+   neighbours and makes the row look misaligned. */
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 138px;
+  height: 100%;
+  box-sizing: border-box;
+  justify-content: flex-start;
+}
+.stat-tile .stat-label { line-height: 1.35; }
+
+/* Columns in a row stretch to the tallest, so a tile whose label wraps
+   to two lines no longer leaves its neighbours short. */
+[data-testid="stHorizontalBlock"] { align-items: stretch; }
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] { height: 100%; }
 .stat-tile .stat-icon {
   width: 34px; height: 34px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
@@ -201,7 +224,11 @@ p, span, label, .stMarkdown { color: var(--text-secondary); }
   background: var(--bg-card) !important;
   color: var(--text-primary) !important;
   transition: all 0.15s ease !important;
+  /* A narrow column must never break a label mid-word — "Open" was
+     rendering as "Ope / n" in the dashboard's action column. */
+  white-space: nowrap;
 }
+.stButton button p, .stDownloadButton button p { white-space: nowrap; }
 .stButton button:hover, .stDownloadButton button:hover {
   border-color: var(--border-strong) !important;
   background: var(--bg-card-hover) !important;
@@ -224,6 +251,16 @@ p, span, label, .stMarkdown { color: var(--text-secondary); }
   border-radius: var(--radius-sm) !important;
   color: var(--text-primary) !important;
 }
+/* Multiselect chips ship bright red by default, which reads as an error
+   state and clashes with the accent. */
+[data-baseweb="tag"] {
+  background-color: var(--accent-violet-soft) !important;
+  border: 1px solid var(--accent) !important;
+  color: var(--text-primary) !important;
+}
+[data-baseweb="tag"] span, [data-baseweb="tag"] svg { color: var(--text-primary) !important; }
+[data-baseweb="tag"] svg { fill: var(--text-primary) !important; }
+
 [data-testid="stFileUploaderDropzone"] {
   background: var(--bg-card) !important;
   border: 1.5px dashed var(--border-strong) !important;

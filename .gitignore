@@ -33,3 +33,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Local agent/editor tooling (not part of the app)
+.claude/
