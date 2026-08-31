@@ -27,9 +27,25 @@ from services.logger_service import get_logger
 logger = get_logger("translator_engine")
 
 
-class ModelNotInstalledError(Exception):
+class TranslationBackendError(Exception):
+    """Base class for 'this backend cannot do the job' failures.
+
+    Raised for conditions the user can act on — a missing model, a missing
+    package, a backend that has stopped responding — as opposed to bugs.
+    The pipeline catches these to fail a job cleanly, with the exception's
+    message shown to the user verbatim.
+    """
+
+
+class ModelNotInstalledError(TranslationBackendError):
     """Raised when a translation is requested for a language pair whose
     Argos Translate package has not been installed locally."""
+
+
+class BackendUnresponsiveError(TranslationBackendError):
+    """Raised when a backend that was working has started failing every
+    request — a dropped connection or a revoked endpoint, rather than a
+    single bad chunk."""
 
 
 class ArgosTranslatorEngine:
@@ -61,10 +77,14 @@ class ArgosTranslatorEngine:
         """Inspects locally installed Argos packages. Does NOT touch the
         network — only reads packages already installed on disk.
         """
-        import argostranslate.translate as argos_translate
-
         pairs: set[tuple[str, str]] = set()
         try:
+            # Imported inside the try so that argostranslate being absent
+            # entirely reports "no pairs installed" — and the UI's friendly
+            # message — rather than raising out of an availability *query*.
+            # This is what makes an online-backend-only install viable.
+            import argostranslate.translate as argos_translate
+
             installed_languages = argos_translate.get_installed_languages()
             for lang in installed_languages:
                 for translation in getattr(lang, "translations_from", []):
@@ -126,3 +146,32 @@ class ArgosTranslatorEngine:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Translation chunk failed (%d chars): %s", len(text), exc)
             raise
+
+
+# ---------------------------------------------------------------------------
+# Backend selection
+# ---------------------------------------------------------------------------
+def resolve_engine(backend: str):
+    """Returns the translation engine for `backend`.
+
+    Both engines expose the same three methods the pipeline relies on —
+    translate(), is_pair_available() and refresh() — so the pipeline holds
+    whichever one it is given without branching on type.
+
+    Falls back to the offline Argos engine on an unrecognised value: a bad
+    setting should degrade to the private, always-available path rather
+    than to an online one.
+    """
+    from models.enums import TranslationBackend
+
+    try:
+        selected = TranslationBackend(backend)
+    except ValueError:
+        logger.warning("Unknown translation backend '%s'; falling back to Argos.", backend)
+        selected = TranslationBackend.ARGOS
+
+    if selected is TranslationBackend.GOOGLE:
+        from core.online_translator import GoogleTranslateEngine
+
+        return GoogleTranslateEngine.instance()
+    return ArgosTranslatorEngine.instance()
