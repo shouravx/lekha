@@ -48,6 +48,10 @@ DEFAULTS: dict[str, Any] = {
     "refine_model": config.REFINE_MODEL,
     "refine_block_chars": config.REFINE_BLOCK_CHARS,
     "refine_timeout": config.REFINE_TIMEOUT,
+    # Start the managed Ollama server on demand when a job needs the
+    # polish pass. Only ever starts a runtime that is already
+    # installed; it never downloads anything on its own.
+    "auto_start_ai": True,
 }
 
 

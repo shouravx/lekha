@@ -180,6 +180,9 @@ def _render_hybrid_settings(settings: dict) -> None:
                 st.error(f"Connection failed: {detail}")
 
     st.write("")
+    _render_ai_setup(settings)
+
+    st.write("")
     with st.container(border=True):
         st.markdown("##### Local AI polish (Ollama)")
         st.caption(
@@ -596,3 +599,140 @@ def _render_glossary_settings(settings: dict) -> None:
                 '<span class="lk-meta">protected</span></div>',
                 unsafe_allow_html=True,
             )
+
+
+def _render_ai_setup(settings: dict) -> None:
+    """Install, start and stop the local AI without leaving the app.
+
+    Previously this tab could only tell the user to go and install Ollama
+    themselves. That is fine at a desk and useless on a machine reached
+    over a tunnel, where there may be nobody in front of it.
+    """
+    from services.ai_runtime import ai_runtime
+
+    base_url = settings.get("ollama_base_url", config.OLLAMA_BASE_URL)
+    model = settings.get("refine_model", config.REFINE_MODEL)
+    status = ai_runtime.status(base_url)
+
+    with st.container(border=True):
+        st.markdown("##### Local AI runtime")
+
+        def row(label: str, value: str, ok: bool) -> None:
+            colour = "var(--success)" if ok else "var(--text-muted)"
+            st.markdown(
+                f'<div class="lk-row"><span class="lk-row-label">'
+                f'<span style="background:{colour};width:7px;height:7px;border-radius:50%;'
+                f'display:inline-block"></span>{label}</span>'
+                f'<span class="lk-meta">{value}</span></div>',
+                unsafe_allow_html=True,
+            )
+
+        if status.installed:
+            where = "installed by Lekha" if status.managed else "found on this system"
+            row("Runtime", where, True)
+        else:
+            row("Runtime", "not installed", False)
+        row("Server", "running" if status.server_running else "stopped", status.server_running)
+        row(f"Model {model}", "ready" if status.has_model(model) else "not pulled",
+            status.has_model(model))
+
+        st.write("")
+
+        if not status.installed:
+            try:
+                asset, size = ai_runtime.download_size()
+                size_note = f"about {size / 1048576:.0f} MB"
+            except Exception:  # noqa: BLE001
+                asset, size_note = "the Ollama runtime", "a large download"
+            st.caption(
+                f"Lekha can install this for you: **{size_note}** for the runtime "
+                f"(`{asset}`), plus roughly 2 GB for `{model}`. It is downloaded from "
+                "Ollama's official GitHub release over HTTPS and its SHA-256 is checked "
+                "against the release's own checksum file before anything runs."
+            )
+            if st.button("Download and install the local AI", type="primary",
+                         key="ai_install"):
+                _run_ai_install(ai_runtime, base_url, model)
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if not status.server_running:
+                    if st.button("Start server", type="primary", key="ai_start",
+                                 use_container_width=True):
+                        with st.spinner("Starting the local AI server..."):
+                            ok = ai_runtime.start_server(base_url)
+                        st.toast("Server started." if ok else "The server did not start.")
+                        st.rerun()
+                elif ai_runtime.owns_server():
+                    if st.button("Stop server", key="ai_stop", use_container_width=True):
+                        ai_runtime.stop_server()
+                        st.toast("Server stopped.")
+                        st.rerun()
+                else:
+                    st.caption("Started outside Lekha")
+            with c2:
+                if status.server_running and not status.has_model(model):
+                    if st.button(f"Pull {model}", key="ai_pull", use_container_width=True):
+                        _run_model_pull(ai_runtime, base_url, model)
+            with c3:
+                if status.managed:
+                    if st.button("Remove runtime", key="ai_remove", use_container_width=True):
+                        ai_runtime.uninstall()
+                        st.toast("Managed runtime removed.")
+                        st.rerun()
+
+        st.write("")
+        auto_start = st.toggle(
+            "Start the AI server automatically when a job needs it",
+            value=bool(settings.get("auto_start_ai", True)),
+            key="ai_auto_start",
+            help="Only starts a runtime that is already installed. Nothing is ever "
+            "downloaded in the middle of a translation.",
+        )
+        if auto_start != bool(settings.get("auto_start_ai", True)):
+            settings_service.update(auto_start_ai=auto_start)
+
+
+def _run_ai_install(ai_runtime, base_url: str, model: str) -> None:
+    """Runs the install with live progress, then starts and pulls."""
+    bar = st.progress(0.0)
+    note = st.empty()
+
+    def report(message: str, fraction: float) -> None:
+        note.caption(message)
+        if 0.0 <= fraction <= 1.0:
+            bar.progress(fraction)
+
+    try:
+        ai_runtime.install(report)
+    except Exception as exc:  # noqa: BLE001
+        bar.empty()
+        st.error(f"Install failed: {exc}")
+        return
+
+    note.caption("Starting the server...")
+    if not ai_runtime.start_server(base_url):
+        bar.empty()
+        st.warning("Installed, but the server did not start. Try Start server below.")
+        return
+
+    _run_model_pull(ai_runtime, base_url, model, bar=bar, note=note)
+
+
+def _run_model_pull(ai_runtime, base_url: str, model: str, bar=None, note=None) -> None:
+    bar = bar if bar is not None else st.progress(0.0)
+    note = note if note is not None else st.empty()
+
+    def report(message: str, fraction: float) -> None:
+        note.caption(message)
+        if 0.0 <= fraction <= 1.0:
+            bar.progress(fraction)
+
+    ok = ai_runtime.pull_model(model, base_url, report)
+    bar.empty()
+    note.empty()
+    if ok:
+        st.success(f"{model} is ready. The polish pass will work from now on.")
+    else:
+        st.error(f"Could not pull {model}. See logs/app.log for details.")
+    st.rerun()

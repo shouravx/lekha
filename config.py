@@ -26,8 +26,13 @@ LOGS_DIR: Path = BASE_DIR / "logs"
 ASSETS_DIR: Path = BASE_DIR / "assets"
 FONTS_DIR: Path = ASSETS_DIR / "fonts"
 DATA_DIR: Path = BASE_DIR / "data"  # history.json, app_settings.json
+# Large downloaded runtimes (the managed Ollama install). Kept out of
+# data/ so a multi-gigabyte binary never sits beside the small JSON
+# files a user might reasonably want to copy or back up.
+RUNTIME_DIR: Path = BASE_DIR / "runtime"
 
-for _d in (UPLOADS_DIR, OUTPUTS_DIR, CHECKPOINTS_DIR, LOGS_DIR, DATA_DIR, FONTS_DIR):
+for _d in (UPLOADS_DIR, OUTPUTS_DIR, CHECKPOINTS_DIR, LOGS_DIR, DATA_DIR, FONTS_DIR,
+           RUNTIME_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------

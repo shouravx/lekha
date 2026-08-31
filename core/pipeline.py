@@ -259,6 +259,20 @@ class TranslationPipeline:
             timeout=int(settings.get("refine_timeout", config.REFINE_TIMEOUT)),
         )
 
+        if not refiner.is_available(force=True) and settings.get("auto_start_ai", True):
+            # The runtime may be installed but not running — a fresh boot,
+            # or a machine nobody is sitting at. Start it rather than
+            # skipping the pass the user explicitly asked for. Only an
+            # already-installed runtime is started; nothing is downloaded
+            # in the middle of a job.
+            from services.ai_runtime import ai_runtime
+
+            binary, _managed = ai_runtime.resolve_binary()
+            if binary is not None:
+                self.log("Starting the local AI server...")
+                if ai_runtime.start_server(refiner.base_url):
+                    self.log("Local AI server is up.")
+
         if not refiner.is_available(force=True):
             self.refine_enabled = False
             self.log(

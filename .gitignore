@@ -18,6 +18,9 @@ logs/*
 data/*
 !data/.gitkeep
 
+# Downloaded AI runtime (Ollama), fetched on demand
+runtime/
+
 # Argos Translate model cache (downloaded by scripts/download_models.py)
 .local/share/argos-translate/
 .argos-translate/

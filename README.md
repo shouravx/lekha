@@ -226,6 +226,97 @@ The polish pass is the slowest stage in every configuration. A CPU-bound 3B mode
 
 ---
 
+## Local AI setup
+
+The optional polish pass needs a small language model. Lekha can install
+and run it for you — **Settings → Hybrid → Local AI runtime → Download and
+install the local AI**. No terminal, no separate installer.
+
+What that does:
+
+1. Resolves the right build for your machine from Ollama's current GitHub
+   release (asset names are looked up live, not hardcoded — the Linux
+   asset was renamed from `.tgz` to `.tar.zst` and a frozen URL would
+   simply 404 one day).
+2. Downloads it over HTTPS with a progress bar, and **verifies its SHA-256
+   against the release's own `sha256sum.txt` before anything runs**. A
+   mismatched archive is deleted rather than executed.
+3. Extracts it into `runtime/` (gitignored, and separate from `data/` so a
+   multi-gigabyte binary never sits beside your settings).
+4. Starts the server as a child process of the app and pulls the model.
+
+Sizes: roughly 1.4 GB for the Windows runtime and about 2 GB for
+`qwen2.5:3b`. The exact figure is shown before anything downloads.
+
+Nothing is fetched automatically. Installing is always a button press — a
+job whose refiner is missing degrades to plain translation rather than
+quietly pulling three gigabytes mid-document. An existing system install
+of Ollama always wins over the managed copy, so models you have already
+pulled are reused.
+
+The server is stopped when Lekha exits, but only if Lekha started it; one
+you were already running is left alone.
+
+---
+
+## Running behind a Cloudflare tunnel
+
+Lekha can be reached remotely through a tunnel, and the local AI setup
+above exists precisely so a machine with nobody in front of it can still
+be provisioned. Before you expose it, read this section.
+
+### Streamlit has no authentication
+
+None. Not a login, not a password, not an API key. **A tunnel URL is a
+public URL**, and anyone who has it can:
+
+- upload documents and start jobs on your machine
+- read your translation history, including local file paths
+- change the output directory, which writes anywhere the app's user can write
+- press *Open outputs folder*, which launches a file browser **on the host**
+- read and change every setting, including the glossary
+
+That is not a defect in Lekha so much as what Streamlit is: a tool for
+trusted networks. It becomes a problem the moment the network stops being
+trusted.
+
+### Put Cloudflare Access in front of the tunnel
+
+A tunnel alone is transport, not authorisation. Cloudflare **Access**
+(part of Zero Trust, free for small teams) puts an identity check in front
+of the hostname, so only addresses you name can reach the app at all.
+Configure it on the hostname *before* you route it, not after.
+
+### Bind Streamlit to localhost
+
+The tunnel daemon connects to the app locally, so the app does not need to
+listen on the network as well. In `.streamlit/config.toml`:
+
+```toml
+[server]
+address = "127.0.0.1"
+```
+
+This is not the default here, because it would remove the LAN access the
+app currently has. Set it deliberately when you move to tunnel-only
+access; with it, the only route in is the tunnel, and the tunnel is behind
+Access.
+
+### The AI server is not exposed by the tunnel
+
+Ollama listens on `127.0.0.1:11434` and the tunnel only routes what you
+tell it to. Do not add a second hostname pointing at 11434 — that endpoint
+has no authentication either, and it can load and run arbitrary models.
+
+### Sensible extras
+
+- Give the tunnel its own hostname, not a wildcard.
+- Keep `enableXsrfProtection` on (the default).
+- If several people will use it, the glossary and history are shared
+  state — there are no per-user accounts.
+
+---
+
 ## Adding More Languages
 
 The architecture is built to extend beyond English ↔ Bengali without touching pipeline code:
@@ -326,6 +417,8 @@ Usually rate limiting or a dropped connection. Raise **Characters per request** 
 There is exactly one way to change that, and it is opt-in: selecting the **Google Translate** backend for a job sends the text of every page to Google's servers. It is never the default, it must be chosen per job, and the app warns you on the Translator page and in the job log whenever it is active. If you never touch it, nothing about the guarantee above changes.
 
 The optional **local AI polish** stage does not transmit anything. It talks to Ollama on `localhost` and the model runs on your own machine.
+
+Exposing the app through a tunnel changes the threat model entirely: the guarantees above are about what Lekha *sends*, not about who can *reach* it. See [Running behind a Cloudflare tunnel](#running-behind-a-cloudflare-tunnel).
 
 ---
 
