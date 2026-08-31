@@ -47,7 +47,22 @@ if not exist "venv\Scripts\activate.bat" (
 call venv\Scripts\activate.bat
 
 REM --- 3. Dependencies -------------------------------------------------------
-if not exist "venv\.deps_installed" (
+REM The marker records a hash of requirements.txt rather than just
+REM "something was installed once", so editing that file (for example to
+REM add the optional hybrid-pipeline packages) triggers a reinstall
+REM instead of being silently skipped.
+set "REQ_HASH="
+for /f "skip=1 delims=" %%h in ('certutil -hashfile requirements.txt MD5') do (
+    if not defined REQ_HASH set "REQ_HASH=%%h"
+)
+REM If certutil is unavailable the hash is empty; force a reinstall rather
+REM than matching an equally-empty marker and skipping silently.
+if not defined REQ_HASH set "REQ_HASH=unknown-%RANDOM%"
+
+set "OLD_HASH="
+if exist "venv\.deps_installed" set /p OLD_HASH=<venv\.deps_installed
+
+if not "%REQ_HASH%"=="%OLD_HASH%" (
     echo [2/4] Installing dependencies from requirements.txt...
     pip install --upgrade pip >nul
     pip install -r requirements.txt
@@ -56,14 +71,14 @@ if not exist "venv\.deps_installed" (
         pause
         exit /b 1
     )
-    echo done > venv\.deps_installed
+    > "venv\.deps_installed" echo %REQ_HASH%
 ) else (
     echo [2/4] Dependencies already installed, skipping.
 )
 
 REM --- 4. Translation models (one-time, needs internet) ----------------------
 if not exist "data\.models_downloaded" (
-    echo [3/4] Downloading translation models (first run only, needs internet)...
+    echo [3/4] Downloading translation models ^(first run only, needs internet^)...
     python scripts\download_models.py
     if errorlevel 1 (
         echo [ERROR] Model download failed. Check your internet connection and re-run.
