@@ -273,11 +273,15 @@ def _render_engine_picker(settings: dict) -> tuple[TranslationBackend, bool]:
                 model=refine_model,
             )
             if not refiner.is_available():
+                # Names the first step rather than assuming Ollama is
+                # merely stopped: on a machine that has never had it, "run
+                # ollama serve" is advice that cannot be followed.
                 st.warning(
-                    f"Ollama isn't reachable at `{refiner.base_url}`. The job will still "
-                    "run, but the polish pass will be skipped. Start it with "
-                    "`ollama serve`, then pull the model with "
-                    f"`ollama pull {refine_model}`.",
+                    f"Nothing is answering at `{refiner.base_url}`, so the polish pass "
+                    "will be skipped — translation itself is unaffected.\n\n"
+                    "To enable it: install Ollama from ollama.com, then run "
+                    f"`ollama pull {refine_model}`. If it is already installed, start "
+                    "it with `ollama serve`.",
                 )
             else:
                 installed = refiner.list_models()

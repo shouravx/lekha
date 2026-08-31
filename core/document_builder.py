@@ -317,248 +317,67 @@ def _apply_run_font(run_or_paragraph, bengali_target: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PDF (secondary output format)
+# PDF
 # ---------------------------------------------------------------------------
-def build_pdf(
-    pages: Iterator[tuple[int, list]],
-    output_path: Path,
-    target_lang: str,
-    title: str = "",
-) -> Path:
-    """Builds a PDF using ReportLab with a bundled Noto Sans Bengali font
-    when the target language is Bengali (ReportLab's built-in fonts are
-    Latin-only and would render Bengali as empty boxes otherwise).
-    """
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+# Built on PyMuPDF, not ReportLab, and the reason is text shaping.
+#
+# Bengali is a complex script: vowel signs reorder around the consonant
+# they attach to (U+09BF is stored *after* its consonant and must render
+# *before* it), and consonant clusters form conjunct ligatures. ReportLab
+# has no shaping engine — it draws code points in memory order — so the
+# previous PDF output placed every vowel sign and every conjunct wrongly,
+# even though the font contained all the glyphs. Measured on a "ki"
+# sample: the vowel drew at x=95.8 with its consonant at x=78.0, i.e. on
+# the wrong side.
+#
+# MuPDF ships HarfBuzz and shapes correctly (41.0 vs 45.7 on the same
+# sample). It also falls back automatically to a Latin face for Latin
+# runs, which removes the manual per-script font splitting the ReportLab
+# path needed.
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    font_name = "Helvetica"
-    needs_latin_fallback = False
-    supported: frozenset = frozenset()
-    bengali_target = _is_bengali_target(target_lang)
-    if bengali_target:
-        if config.BENGALI_FONT_PATH.exists():
-            try:
-                pdfmetrics.registerFont(TTFont(config.BENGALI_FONT_NAME, str(config.BENGALI_FONT_PATH)))
-                font_name = config.BENGALI_FONT_NAME
-                # Noto Sans Bengali carries no Latin glyphs, and no glyph
-                # for '@' or '&' either, so anything it cannot draw has to
-                # be handed to a fallback font or it renders as blanks.
-                supported = _font_coverage(font_name)
-                needs_latin_fallback = bool(supported)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not register Bengali font, falling back to Helvetica: %s", exc)
-        else:
-            logger.warning(
-                "Bengali font not found at %s — Bengali text in the PDF output may not render "
-                "correctly. See README for font setup.",
-                config.BENGALI_FONT_PATH,
-            )
+_PDF_CSS = """
+@font-face {{ font-family: doc; src: url({font_file}); }}
+body {{ font-family: doc; font-size: 10.5pt; line-height: 1.55; color: #1a1a1a; }}
+h1 {{ font-size: 19pt; margin: 0 0 10pt 0; line-height: 1.25; }}
+h2 {{ font-size: 15pt; margin: 14pt 0 5pt 0; line-height: 1.3; }}
+h3 {{ font-size: 12.5pt; margin: 12pt 0 4pt 0; line-height: 1.3; }}
+h4 {{ font-size: 11pt; margin: 10pt 0 4pt 0; }}
+p {{ margin: 0 0 6pt 0; }}
+ul {{ margin: 0 0 6pt 0; padding-left: 16pt; }}
+li {{ margin: 0 0 3pt 0; }}
+table {{ width: 100%; border-collapse: collapse; margin: 6pt 0 10pt 0; }}
+td, th {{ border: 0.6pt solid #9a9a9a; padding: 4pt 6pt; text-align: left;
+         vertical-align: top; font-size: 10pt; }}
+th {{ background-color: #eeeeee; font-weight: bold; }}
+img {{ max-width: 100%; }}
+.furniture {{ font-size: 8pt; color: #666666; text-align: center; }}
+"""
 
-    from reportlab.lib import colors
-    from reportlab.platypus import Image as RLImage
-    from reportlab.platypus import Table, TableStyle
+# Blocks are accumulated into an HTML batch and flushed when the batch
+# gets large. Story needs a whole document string at once, so flushing in
+# batches is what keeps peak memory flat on a 1000-page job while still
+# letting text flow naturally within a batch. The threshold is high
+# enough that an ordinary document is a single batch and gains no
+# artificial page break.
+_PDF_BATCH_CHARS = 240_000
 
-    from core.document_model import BlockKind
 
-    body_style = ParagraphStyle(
-        "Body", fontName=font_name, fontSize=10.5, leading=15, spaceAfter=6,
+def _html_escape(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
     )
-    title_style = ParagraphStyle(
-        "DocTitle", fontName=font_name, fontSize=19, leading=24,
-        spaceBefore=6, spaceAfter=16,
-    )
-    # Heading sizes step down so the document's hierarchy stays visible at
-    # a glance, mirroring the levels the extractor recovered.
-    heading_styles = {
-        level: ParagraphStyle(
-            f"H{level}", fontName=font_name,
-            fontSize=size, leading=size * 1.3,
-            spaceBefore=12 - level, spaceAfter=5,
-        )
-        for level, size in ((1, 16.0), (2, 13.5), (3, 11.5), (4, 10.5))
-    }
-    bullet_styles = {
-        depth: ParagraphStyle(
-            f"Bullet{depth}", parent=body_style,
-            leftIndent=12 + 14 * depth, bulletIndent=2 + 14 * depth,
-            spaceAfter=3,
-        )
-        for depth in range(0, 5)
-    }
-
-    doc = SimpleDocTemplate(
-        str(output_path), pagesize=A4,
-        leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=18 * mm,
-    )
-    frame_width = doc.width
-
-    story = []
-    running_header: list[str] = []
-    running_footer: list[str] = []
-
-    # As in the DOCX builder, the filename is only used as a title when
-    # the document has none of its own — otherwise the output opens with
-    # the untranslated filename above the real, translated title. It also
-    # goes through the fallback markup, since a Latin filename is exactly
-    # the text the Bengali font cannot draw.
-    pages = iter(pages)
-    first_page = next(pages, None)
-    if first_page is not None and title:
-        if not any(b.kind is BlockKind.TITLE for b in first_page[1]):
-            story.append(Paragraph(
-                _cell_markup(title, needs_latin_fallback, supported), title_style
-            ))
-
-    page_count = 0
-    for _page_num, blocks in _chain_first(first_page, pages):
-        for block in blocks:
-            if block.kind in (BlockKind.HEADER, BlockKind.FOOTER):
-                # Collected rather than placed inline; drawn on every page
-                # by the page callback below, which is where a repeating
-                # letterhead actually belongs.
-                text = block.text.strip()
-                if text:
-                    (running_header if block.kind is BlockKind.HEADER
-                     else running_footer).append(text)
-                continue
-
-            if block.kind is BlockKind.IMAGE:
-                _append_pdf_image(story, block, frame_width, RLImage, Spacer)
-                continue
-
-            if block.kind is BlockKind.TABLE:
-                _append_pdf_table(
-                    story, block, body_style, frame_width,
-                    Table, TableStyle, Paragraph, Spacer, colors,
-                    font_name, needs_latin_fallback, supported,
-                )
-                continue
-
-            text = block.text.strip()
-            if not text:
-                continue
-
-            markup = _runs_to_markup(block, font_name, needs_latin_fallback, supported)
-            if block.kind is BlockKind.TITLE:
-                story.append(Paragraph(markup, title_style))
-            elif block.kind is BlockKind.HEADING:
-                story.append(Paragraph(markup, heading_styles[min(max(block.level, 1), 4)]))
-            elif block.kind is BlockKind.LIST_ITEM:
-                depth = min(max(block.list_depth, 0), 4)
-                story.append(Paragraph(markup, bullet_styles[depth], bulletText="•"))
-            else:
-                story.append(Paragraph(markup, body_style))
-        page_count += 1
-
-    if not story:
-        story.append(Paragraph("[No translatable content was found in this document]", body_style))
-
-    def draw_furniture(canvas, document) -> None:
-        """Paints the running header/footer and a page number on each page."""
-        canvas.saveState()
-        canvas.setFont(font_name, 8)
-        canvas.setFillGray(0.42)
-        width = document.pagesize[0]
-        if running_header:
-            y = document.pagesize[1] - 12 * mm
-            for line in running_header:
-                _draw_mixed_centred(canvas, width / 2.0, y, line,
-                                    font_name, 8, needs_latin_fallback, supported)
-                y -= 10
-        y = 12 * mm
-        for line in reversed(running_footer):
-            _draw_mixed_centred(canvas, width / 2.0, y, line,
-                                font_name, 8, needs_latin_fallback, supported)
-            y += 10
-        canvas.setFont(font_name, 8)
-        canvas.drawCentredString(width / 2.0, 7 * mm, str(canvas.getPageNumber()))
-        canvas.restoreState()
-
-    doc.build(story, onFirstPage=draw_furniture, onLaterPages=draw_furniture)
-    logger.info("Built PDF output (%d source pages): %s", page_count, output_path)
-    return output_path
 
 
-_LATIN_FALLBACK_FONT = "Helvetica"
-
-
-def _font_coverage(font_name: str) -> frozenset:
-    """The set of code points a registered font can actually draw.
-
-    Asking the font directly is the only reliable test. Classifying by
-    script is not enough: '@', '&' and '_' belong to no script, yet Noto
-    Sans Bengali has no glyph for them, so an email address rendered in it
-    loses its '@' silently.
-    """
-    try:
-        from reportlab.pdfbase import pdfmetrics
-
-        face = pdfmetrics.getFont(font_name).face
-        return frozenset(getattr(face, "charToGlyph", {}).keys())
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Could not read glyph coverage for %s: %s", font_name, exc)
-        return frozenset()
-
-
-def _split_script_segments(text: str, supported: frozenset = frozenset()) -> list[tuple[str, bool]]:
-    """Splits text into (segment, needs_fallback) runs.
-
-    A segment is flagged for the fallback font when the primary font has
-    no glyph for it. Whitespace is neutral and never forces a switch, so
-    the font changes only where it has to.
-    """
-    if not supported:
-        return [(text, False)]
-
-    segments: list[tuple[str, bool]] = []
-    current: list[str] = []
-    current_fallback: bool | None = None
-
-    for ch in text:
-        if ch.isspace():
-            current.append(ch)
-            continue
-
-        needs_fallback = ord(ch) not in supported
-        if current_fallback is None:
-            current_fallback = needs_fallback
-        elif needs_fallback != current_fallback:
-            segments.append(("".join(current), current_fallback))
-            current = []
-            current_fallback = needs_fallback
-        current.append(ch)
-
-    if current:
-        segments.append(("".join(current), bool(current_fallback)))
-    return segments
-
-
-def _runs_to_markup(block, font_name: str = "", needs_latin_fallback: bool = False,
-                    supported: frozenset = frozenset()) -> str:
-    """Renders a block's runs as ReportLab's inline markup, so bold and
-    italic survive into the PDF rather than being flattened — and so
-    Latin text inside a Bengali document is drawn in a font that has
-    Latin glyphs."""
+def _runs_to_html(block) -> str:
+    """Inline markup for one block's runs, so bold and italic survive."""
     parts = []
     for run in block.runs:
         if not run.text:
             continue
-        if needs_latin_fallback:
-            piece = "".join(
-                f'<font name="{_LATIN_FALLBACK_FONT}">{_xml_escape(seg)}</font>'
-                if is_latin else _xml_escape(seg)
-                for seg, is_latin in _split_script_segments(run.text, supported)
-            )
-        else:
-            piece = _xml_escape(run.text)
+        piece = _html_escape(run.text)
         if run.bold:
             piece = f"<b>{piece}</b>"
         if run.italic:
@@ -567,99 +386,198 @@ def _runs_to_markup(block, font_name: str = "", needs_latin_fallback: bool = Fal
     return "".join(parts)
 
 
-def _draw_mixed_centred(canvas, centre_x: float, y: float, text: str,
-                        font_name: str, size: float, needs_latin_fallback: bool,
-                        supported: frozenset = frozenset()) -> None:
-    """Draws centred text that may mix Bengali and Latin, switching font
-    per segment so neither script is dropped."""
-    if not needs_latin_fallback:
-        canvas.drawCentredString(centre_x, y, text)
-        return
+def _block_to_html(block, image_names: dict) -> str:
+    from core.document_model import BlockKind
 
-    segments = _split_script_segments(text, supported)
-    total = sum(
-        canvas.stringWidth(seg, _LATIN_FALLBACK_FONT if is_latin else font_name, size)
-        for seg, is_latin in segments
-    )
-    x = centre_x - total / 2.0
-    for seg, is_latin in segments:
-        font = _LATIN_FALLBACK_FONT if is_latin else font_name
-        canvas.setFont(font, size)
-        canvas.drawString(x, y, seg)
-        x += canvas.stringWidth(seg, font, size)
+    if block.kind is BlockKind.IMAGE:
+        name = image_names.get(block.image_path)
+        if not name:
+            return ""
+        width = f' width="{int(block.image_width)}"' if block.image_width else ""
+        return f'<p><img src="{name}"{width}></p>'
 
-
-def _append_pdf_image(story, block, frame_width, RLImage, Spacer) -> None:
-    path = Path(block.image_path)
-    if not path.exists():
-        return
-    try:
-        width = block.image_width or frame_width
-        height = block.image_height or 0
-        if width > frame_width:
-            # Scale proportionally rather than distorting.
-            if height:
-                height = height * (frame_width / width)
-            width = frame_width
-        image = RLImage(str(path), width=width, height=height or None)
-        story.append(image)
-        story.append(Spacer(1, 6))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not place image %s in PDF: %s", path, exc)
-
-
-def _append_pdf_table(story, block, body_style, frame_width,
-                      Table, TableStyle, Paragraph, Spacer, colors,
-                      font_name: str = "", needs_latin_fallback: bool = False,
-                      supported: frozenset = frozenset()) -> None:
-    rows = [row for row in block.rows if any((c or "").strip() for c in row)]
-    if not rows:
-        return
-    columns = max(len(row) for row in rows)
-    col_width = frame_width / columns
-
-    # Cells are Paragraphs, not raw strings, so long translated text wraps
-    # inside its column instead of overflowing the table.
-    data = [
-        [
-            Paragraph(
-                _cell_markup((row[i] if i < len(row) else "") or "",
-                             needs_latin_fallback, supported),
-                body_style,
+    if block.kind is BlockKind.TABLE:
+        rows = [r for r in block.rows if any((c or "").strip() for c in r)]
+        if not rows:
+            return ""
+        columns = max(len(r) for r in rows)
+        out = ["<table>"]
+        for index, row in enumerate(rows):
+            tag = "th" if index == 0 else "td"
+            cells = "".join(
+                f"<{tag}>{_html_escape((row[i] if i < len(row) else '') or '')}</{tag}>"
+                for i in range(columns)
             )
-            for i in range(columns)
-        ]
-        for row in rows
-    ]
-    table = Table(data, colWidths=[col_width] * columns)
-    table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EFEFEF")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 8))
+            out.append(f"<tr>{cells}</tr>")
+        out.append("</table>")
+        return "".join(out)
+
+    if not block.text.strip():
+        return ""
+
+    markup = _runs_to_html(block)
+    if block.kind is BlockKind.TITLE:
+        return f"<h1>{markup}</h1>"
+    if block.kind is BlockKind.HEADING:
+        level = min(max(block.level, 1), 4)
+        return f"<h{level}>{markup}</h{level}>"
+    if block.kind is BlockKind.LIST_ITEM:
+        return f"<ul><li>{markup}</li></ul>"
+
+    indent = f' style="margin-left:{int(block.indent)}pt"' if block.indent > 1 else ""
+    return f"<p{indent}>{markup}</p>"
 
 
-def _xml_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+def build_pdf(
+    pages,
+    output_path,
+    target_lang: str,
+    title: str = "",
+):
+    """Writes a formatted, correctly-shaped PDF from structured pages."""
+    import fitz
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    archive = fitz.Archive()
+    font_file = "NotoSansBengali-Regular.ttf"
+    if config.BENGALI_FONT_PATH.exists():
+        archive.add(config.BENGALI_FONT_PATH.read_bytes(), font_file)
+    else:
+        logger.warning(
+            "Bengali font missing at %s; the PDF will fall back to a built-in face.",
+            config.BENGALI_FONT_PATH,
+        )
+    css = _PDF_CSS.format(font_file=font_file)
+
+    mediabox = fitz.paper_rect("a4")
+    where = mediabox + (56, 64, -56, -64)
+
+    writer = fitz.DocumentWriter(str(output_path))
+    batch: list[str] = []
+    batch_chars = 0
+    running_header: list[str] = []
+    running_footer: list[str] = []
+    image_names: dict = {}
+    page_count = 0
+    written_pages = 0
+
+    def flush() -> int:
+        """Lays out the accumulated HTML, returning pages written."""
+        nonlocal batch, batch_chars
+        if not batch:
+            return 0
+        html = "<body>" + "".join(batch) + "</body>"
+        batch, batch_chars = [], 0
+        story = fitz.Story(html=html, user_css=css, archive=archive)
+        produced = 0
+        more = True
+        while more:
+            device = writer.begin_page(mediabox)
+            more, _ = story.place(where)
+            story.draw(device)
+            writer.end_page()
+            produced += 1
+        return produced
+
+    from core.document_model import BlockKind
+
+    pages = iter(pages)
+    first_page = next(pages, None)
+    if first_page is not None and title:
+        if not any(b.kind is BlockKind.TITLE for b in first_page[1]):
+            batch.append(f"<h1>{_html_escape(title)}</h1>")
+
+    for _page_num, blocks in _chain_first(first_page, pages):
+        for block in blocks:
+            if block.kind in (BlockKind.HEADER, BlockKind.FOOTER):
+                text = block.text.strip()
+                if text:
+                    target = running_header if block.kind is BlockKind.HEADER else running_footer
+                    if text not in target:
+                        target.append(text)
+                continue
+
+            if block.kind is BlockKind.IMAGE and block.image_path:
+                path = Path(block.image_path)
+                if path.exists() and block.image_path not in image_names:
+                    try:
+                        archive.add(path.read_bytes(), path.name)
+                        image_names[block.image_path] = path.name
+                    except OSError as exc:
+                        logger.debug("Could not stage image %s: %s", path, exc)
+
+            fragment = _block_to_html(block, image_names)
+            if fragment:
+                batch.append(fragment)
+                batch_chars += len(fragment)
+
+        page_count += 1
+        if batch_chars >= _PDF_BATCH_CHARS:
+            written_pages += flush()
+
+    written_pages += flush()
+
+    if written_pages == 0:
+        # An empty document still has to be a valid, openable PDF.
+        device = writer.begin_page(mediabox)
+        story = fitz.Story(
+            html="<body><p>No translatable content was found in this document.</p></body>",
+            user_css=css, archive=archive,
+        )
+        story.place(where)
+        story.draw(device)
+        writer.end_page()
+
+    writer.close()
+
+    _stamp_pdf_furniture(output_path, running_header, running_footer, css, archive)
+
+    logger.info("Built PDF output (%d source pages): %s", page_count, output_path)
+    return output_path
 
 
-def _cell_markup(text: str, needs_latin_fallback: bool,
-                 supported: frozenset = frozenset()) -> str:
-    """Table-cell text with the same Latin fallback the body paragraphs get."""
-    if not needs_latin_fallback:
-        return _xml_escape(text)
-    return "".join(
-        f'<font name="{_LATIN_FALLBACK_FONT}">{_xml_escape(seg)}</font>'
-        if is_latin else _xml_escape(seg)
-        for seg, is_latin in _split_script_segments(text, supported)
-    )
+def _stamp_pdf_furniture(output_path, header_lines, footer_lines, css, archive) -> None:
+    """Draws the running letterhead/footer and a page number on every page.
+
+    Story lays out the flowing body but has no concept of a running
+    header, so the furniture is stamped afterwards — through
+    insert_htmlbox rather than insert_textbox, because only the HTML path
+    goes through the shaper and this text is frequently Bengali.
+    """
+    import fitz
+
+    if not header_lines and not footer_lines:
+        pass  # page numbers alone are still worth stamping
+
+    try:
+        doc = fitz.open(str(output_path))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not reopen the PDF to add page furniture: %s", exc)
+        return
+
+    try:
+        header_html = "".join(
+            f'<p class="furniture">{_html_escape(line)}</p>' for line in header_lines
+        )
+        footer_html = "".join(
+            f'<p class="furniture">{_html_escape(line)}</p>' for line in footer_lines
+        )
+        for index, page in enumerate(doc, start=1):
+            rect = page.rect
+            if header_html:
+                page.insert_htmlbox(
+                    fitz.Rect(40, 16, rect.width - 40, 58), header_html,
+                    css=css, archive=archive,
+                )
+            number = f'<p class="furniture">{index}</p>'
+            page.insert_htmlbox(
+                fitz.Rect(40, rect.height - 52, rect.width - 40, rect.height - 14),
+                footer_html + number, css=css, archive=archive,
+            )
+        doc.saveIncr()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not stamp page furniture: %s", exc)
+    finally:
+        doc.close()

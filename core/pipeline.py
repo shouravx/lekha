@@ -227,9 +227,11 @@ class TranslationPipeline:
         if not refiner.is_available(force=True):
             self.refine_enabled = False
             self.log(
-                f"WARNING: LLM refinement was requested but Ollama is unreachable at "
+                f"WARNING: the polish pass was requested but nothing is answering at "
                 f"{refiner.base_url}. Continuing with unrefined machine translation. "
-                "Start Ollama (`ollama serve`) and re-run to enable polishing."
+                "To enable it, install Ollama from ollama.com and run "
+                f"`ollama pull {refiner.model}`; if it is already installed, start it "
+                "with `ollama serve`, then re-run."
             )
             return
 
