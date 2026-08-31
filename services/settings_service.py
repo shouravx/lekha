@@ -15,7 +15,13 @@ import config
 from services.logger_service import get_logger
 
 logger = get_logger("settings_service")
-_lock = threading.Lock()
+
+# Reentrant: update() holds the lock and then calls get_all(), which takes
+# it again. With a plain Lock that deadlocks the calling thread forever —
+# which in Streamlit means every "Save settings" button (and the Start
+# Translation button, which persists tuning before submitting) hangs the
+# app permanently.
+_lock = threading.RLock()
 
 DEFAULTS: dict[str, Any] = {
     "default_source_lang": "en",
@@ -29,6 +35,16 @@ DEFAULTS: dict[str, Any] = {
     "max_file_size_mb": config.MAX_FILE_SIZE_MB,
     "accent_color": "violet",
     "keep_checkpoints_after_completion": False,
+    # --- Hybrid pipeline (both stages opt-in; defaults preserve the
+    # fully-offline behaviour Lekha shipped with) ---------------------
+    "translation_backend": config.DEFAULT_TRANSLATION_BACKEND,
+    "online_chunk_max_chars": config.ONLINE_MAX_CHUNK_CHARS,
+    "online_translation_workers": config.ONLINE_TRANSLATION_WORKERS,
+    "refine_enabled_default": config.REFINE_ENABLED_DEFAULT,
+    "ollama_base_url": config.OLLAMA_BASE_URL,
+    "refine_model": config.REFINE_MODEL,
+    "refine_block_chars": config.REFINE_BLOCK_CHARS,
+    "refine_timeout": config.REFINE_TIMEOUT,
 }
 
 

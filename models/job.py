@@ -27,6 +27,11 @@ class TranslationJob:
     output_formats: list[str]
     ocr_enabled: bool = False
     output_dir: str = ""
+    # Hybrid pipeline. Both default to the offline, local-only behaviour,
+    # so a job dict written before these fields existed still loads and
+    # still behaves exactly as it did.
+    translation_backend: str = "argos"
+    refine_enabled: bool = False
     job_id: str = field(default_factory=new_job_id)
     original_filename: str = ""
     status: JobStatus = JobStatus.QUEUED
@@ -70,6 +75,10 @@ class HistoryEntry:
     file_size_mb: float
     input_path: str = ""
     ocr_enabled: bool = False
+    # Recorded so the History page can show which path produced a file —
+    # notably whether its text was sent to an online service.
+    translation_backend: str = "argos"
+    refine_enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

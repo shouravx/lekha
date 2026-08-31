@@ -16,6 +16,19 @@ sentencepiece==0.2.0
 python-docx==1.1.2
 reportlab==4.2.5
 
+# --- Hybrid pipeline (optional — both stages are opt-in) ---------------
+# Online translation backend. deep-translator is chosen over googletrans
+# because it is actively maintained and also fronts DeepL/MyMemory/
+# LibreTranslate, so switching providers is a constructor change.
+# Only needed if you use the Google Translate backend.
+deep-translator==1.11.4
+
+# HTTP client for the local Ollama refinement stage. Only needed if you
+# use the "polish with a local AI model" option. The model itself is not
+# a Python dependency — install Ollama separately and run:
+#     ollama pull qwen2.5:3b
+requests==2.32.3
+
 # --- OCR (optional — only needed if OCR is enabled in Settings) --------
 # PaddleOCR pulls in paddlepaddle, which is a large download (several
 # hundred MB). If you don't need OCR for scanned PDFs, you can skip

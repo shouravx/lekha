@@ -20,12 +20,15 @@ def render() -> None:
 
     settings = settings_service.get_all()
 
-    tab_translation, tab_ocr, tab_output, tab_appearance, tab_about = st.tabs(
-        ["🌐 Translation", "🔍 OCR", "📁 Output", "🎨 Appearance", "ℹ️ About"]
+    tab_translation, tab_hybrid, tab_ocr, tab_output, tab_appearance, tab_about = st.tabs(
+        ["🌐 Translation", "🔀 Hybrid", "🔍 OCR", "📁 Output", "🎨 Appearance", "ℹ️ About"]
     )
 
     with tab_translation:
         _render_translation_settings(settings)
+
+    with tab_hybrid:
+        _render_hybrid_settings(settings)
 
     with tab_ocr:
         _render_ocr_settings(settings)
@@ -106,6 +109,177 @@ def _render_translation_settings(settings: dict) -> None:
             max_file_size_mb=max_size,
         )
         st.toast("Translation settings saved.", icon="✅")
+
+
+def _render_hybrid_settings(settings: dict) -> None:
+    """The hybrid pipeline: an online backend for bulk translation, and a
+    small local model to polish the result.
+
+        source PDF -> Google Translate -> raw Bangla -> local 3B model -> book
+
+    Both stages are optional and both default to off. The offline Argos
+    path is unaffected by anything on this tab.
+    """
+    from models.enums import TranslationBackend
+
+    with st.container(border=True):
+        st.markdown("##### Default translation backend")
+        st.caption(
+            "Sets which backend the Translator page starts on. You can still switch "
+            "per job."
+        )
+
+        backends = [TranslationBackend.ARGOS, TranslationBackend.GOOGLE]
+        try:
+            current_index = backends.index(
+                TranslationBackend(
+                    settings.get("translation_backend", config.DEFAULT_TRANSLATION_BACKEND)
+                )
+            )
+        except ValueError:
+            current_index = 0
+
+        backend = st.radio(
+            "Backend",
+            options=backends,
+            format_func=lambda b: b.label,
+            index=current_index,
+            label_visibility="collapsed",
+        )
+
+        if backend is TranslationBackend.GOOGLE:
+            st.warning(
+                "Making the online backend your default means documents are sent to "
+                "Google unless you remember to switch back per job.",
+                icon="🌐",
+            )
+
+        from core.online_translator import GoogleTranslateEngine, deep_translator_installed
+
+        if not deep_translator_installed():
+            st.info(
+                "The online backend needs `deep-translator`. Install it with "
+                "`pip install deep-translator`."
+            )
+        elif st.button("🔌 Test Google Translate connection"):
+            with st.spinner("Contacting Google..."):
+                ok, detail = GoogleTranslateEngine.instance().self_test()
+            if ok:
+                st.success(f'Connected. "Hello" → "{detail}"')
+            else:
+                st.error(f"Connection failed: {detail}")
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown("##### Local AI polish (Ollama)")
+        st.caption(
+            "A small instruct model rewrites the machine translation as natural book "
+            "prose. It only edits already-translated text, so a 3B model on CPU is "
+            "enough — no GPU required."
+        )
+
+        from core.llm_refiner import LLMRefiner
+
+        refiner = LLMRefiner.instance()
+
+        refine_default = st.toggle(
+            "Enable the polish pass by default for new translations",
+            value=bool(settings.get("refine_enabled_default", config.REFINE_ENABLED_DEFAULT)),
+        )
+
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            ollama_url = st.text_input(
+                "Ollama base URL",
+                value=settings.get("ollama_base_url", config.OLLAMA_BASE_URL),
+                help="Where the Ollama server is listening. The default is correct for a "
+                "standard local install.",
+            )
+        with c2:
+            refine_timeout = st.number_input(
+                "Per-block timeout (seconds)",
+                min_value=15,
+                max_value=600,
+                value=int(settings.get("refine_timeout", config.REFINE_TIMEOUT)),
+                step=15,
+            )
+
+        # Offer whatever is actually pulled locally, but still allow a free
+        # text entry so a model can be named before it is installed.
+        refiner.configure(base_url=ollama_url)
+        installed_models = refiner.list_models()
+        current_model = settings.get("refine_model", config.REFINE_MODEL)
+
+        if installed_models:
+            options = list(installed_models)
+            if current_model not in options:
+                options.insert(0, current_model)
+            refine_model = st.selectbox(
+                "Refinement model",
+                options=options,
+                index=options.index(current_model),
+                help="Models currently installed in Ollama. A 3B instruct model is the "
+                "sweet spot for this task on CPU.",
+            )
+        else:
+            refine_model = st.text_input(
+                "Refinement model",
+                value=current_model,
+                help="Ollama isn't reachable, so the installed model list is unavailable. "
+                "Enter the model tag you intend to use.",
+            )
+            st.caption(
+                "Not seeing your models? Start the server with `ollama serve`, then "
+                f"`ollama pull {current_model}`."
+            )
+
+        refine_block = st.slider(
+            "Characters per refinement call",
+            min_value=400,
+            max_value=3000,
+            value=int(settings.get("refine_block_chars", config.REFINE_BLOCK_CHARS)),
+            step=100,
+            help="Translated chunks are regrouped into blocks of roughly this size "
+            "before being polished. Larger blocks mean fewer model calls (faster) and "
+            "more context for consistent prose, but a slower response per call.",
+        )
+
+        if st.button("🔌 Test Ollama connection"):
+            refiner.configure(base_url=ollama_url, model=refine_model, timeout=refine_timeout)
+            with st.spinner(f"Asking {refine_model} to polish a sample sentence..."):
+                ok, detail = refiner.self_test(settings.get("default_target_lang", "bn"))
+            if ok:
+                st.success("Refinement is working. Sample output:")
+                st.info(detail)
+            else:
+                st.error(detail)
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown("##### What each combination costs you")
+        st.markdown(
+            "| Backend | Polish | Speed | Privacy |\n"
+            "| --- | --- | --- | --- |\n"
+            "| Argos | off | Slow on CPU | Fully offline |\n"
+            "| Argos | on | Slowest | Fully offline |\n"
+            "| Google | off | Fastest | Text sent to Google |\n"
+            "| Google | on | Moderate | Text sent to Google |\n"
+        )
+        st.caption(
+            "The polish pass is the slowest stage in every configuration — it runs a "
+            "language model locally on every block of the document."
+        )
+
+    if st.button("💾 Save hybrid settings", type="primary"):
+        settings_service.update(
+            translation_backend=backend.value,
+            refine_enabled_default=refine_default,
+            ollama_base_url=ollama_url,
+            refine_model=refine_model,
+            refine_block_chars=refine_block,
+            refine_timeout=int(refine_timeout),
+        )
+        st.toast("Hybrid settings saved.", icon="✅")
 
 
 def _render_ocr_settings(settings: dict) -> None:
@@ -205,16 +379,38 @@ def _render_appearance_settings(settings: dict) -> None:
 
 
 def _render_about(settings: dict) -> None:
+    from models.enums import TranslationBackend
+
+    active_backend = settings.get("translation_backend", config.DEFAULT_TRANSLATION_BACKEND)
+    online_default = active_backend == TranslationBackend.GOOGLE.value
+
     with st.container(border=True):
         st.markdown(f"##### {config.APP_NAME}")
-        st.caption(f"Version {config.APP_VERSION} · 100% offline · Powered by Argos Translate")
+        st.caption(
+            f"Version {config.APP_VERSION} · "
+            f"{'Hybrid mode' if online_default else 'Offline by default'} · "
+            "Powered by Argos Translate"
+        )
         st.write("")
         st.write(
-            "Lekha runs entirely on your machine. No file, page, or "
-            "translated text is ever sent to a server — translation, OCR, and "
-            "document generation all happen locally using Argos Translate, "
-            "PyMuPDF, and (optionally) PaddleOCR."
+            "Lekha's default pipeline runs entirely on your machine. No file, page, or "
+            "translated text is sent anywhere — translation, OCR, and document "
+            "generation all happen locally using Argos Translate, PyMuPDF, and "
+            "(optionally) PaddleOCR."
         )
+        st.write(
+            "The optional hybrid pipeline changes that. With the **Google Translate** "
+            "backend selected, the text of every page is sent to Google's servers. The "
+            "optional **local AI polish** stage does not: it runs against Ollama on this "
+            "machine and keeps text local. Both are opt-in and both are off unless you "
+            "turn them on."
+        )
+        if online_default:
+            st.warning(
+                "Your default backend is currently **Google Translate (online)**, so new "
+                "jobs will transmit document text unless you switch back per job.",
+                icon="🌐",
+            )
 
     st.write("")
     with st.container(border=True):

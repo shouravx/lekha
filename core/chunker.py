@@ -104,3 +104,34 @@ def _hard_split(text: str, max_chars: int) -> list[str]:
 def iter_chunks(text: str, max_chars: int = config.MAX_CHUNK_CHARS) -> Iterator[str]:
     """Generator variant of split_into_chunks for streaming consumers."""
     yield from split_into_chunks(text, max_chars)
+
+
+def group_into_blocks(chunks: list[str], max_chars: int) -> list[str]:
+    """Re-joins already-translated chunks into larger blocks.
+
+    The inverse operation of split_into_chunks, used by the LLM refinement
+    stage. Translation wants small chunks (accuracy, model context); the
+    refiner wants large ones, because its cost is dominated by per-call
+    overhead and a bigger block gives the editor more surrounding context
+    to make the prose read consistently.
+
+    Chunks are never split here — only concatenated — so a single chunk
+    longer than max_chars becomes its own block rather than being cut.
+    """
+    if not chunks:
+        return []
+
+    blocks: list[str] = []
+    current = ""
+    for chunk in chunks:
+        if not chunk or not chunk.strip():
+            continue
+        candidate = f"{current}\n{chunk}" if current else chunk
+        if current and len(candidate) > max_chars:
+            blocks.append(current)
+            current = chunk
+        else:
+            current = candidate
+    if current:
+        blocks.append(current)
+    return blocks

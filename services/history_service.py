@@ -74,6 +74,8 @@ class HistoryService:
             file_size_mb=job.file_size_mb,
             input_path=job.input_path,
             ocr_enabled=job.ocr_enabled,
+            translation_backend=getattr(job, "translation_backend", "argos"),
+            refine_enabled=getattr(job, "refine_enabled", False),
         )
         with _lock:
             raw = self._read_raw()
