@@ -228,9 +228,36 @@ The polish pass is the slowest stage in every configuration. A CPU-bound 3B mode
 
 ## Local AI setup
 
-The optional polish pass needs a small language model. Lekha can install
-and run it for you — **Settings → Hybrid → Local AI runtime → Download and
-install the local AI**. No terminal, no separate installer.
+The optional polish pass needs a small language model. You do not have to
+install anything yourself.
+
+**The launchers do it.** `run.bat` and `run.sh` now have a step for it, so
+a machine that nobody is sitting in front of — the tunnel case — comes up
+fully provisioned:
+
+```
+[4/5] Checking the local AI...
+```
+
+It is idempotent, so it costs about a second on every launch after the
+first. It is also never fatal: the script always exits 0, so a failed or
+impossible install can only cost you the optional polish pass, never the
+app itself. To skip it entirely:
+
+```bash
+set LEKHA_SKIP_AI=1        REM Windows
+export LEKHA_SKIP_AI=1     # macOS/Linux
+```
+
+You can also run it on its own:
+
+```bash
+python scripts/setup_ai.py --check    # report status, change nothing
+python scripts/setup_ai.py            # install what is missing
+```
+
+Or do it from the UI — **Settings → Hybrid → Local AI runtime → Download
+and install the local AI**.
 
 What that does:
 

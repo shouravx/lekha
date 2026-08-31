@@ -33,7 +33,7 @@ if errorlevel 1 (
 
 REM --- 2. Virtual environment ----------------------------------------------
 if not exist "venv\Scripts\activate.bat" (
-    echo [1/4] Creating virtual environment...
+    echo [1/5] Creating virtual environment...
     python -m venv venv
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment.
@@ -41,7 +41,7 @@ if not exist "venv\Scripts\activate.bat" (
         exit /b 1
     )
 ) else (
-    echo [1/4] Virtual environment already exists, skipping.
+    echo [1/5] Virtual environment already exists, skipping.
 )
 
 call venv\Scripts\activate.bat
@@ -63,7 +63,7 @@ set "OLD_HASH="
 if exist "venv\.deps_installed" set /p OLD_HASH=<venv\.deps_installed
 
 if not "%REQ_HASH%"=="%OLD_HASH%" (
-    echo [2/4] Installing dependencies from requirements.txt...
+    echo [2/5] Installing dependencies from requirements.txt...
     pip install --upgrade pip >nul
     pip install -r requirements.txt
     if errorlevel 1 (
@@ -73,12 +73,12 @@ if not "%REQ_HASH%"=="%OLD_HASH%" (
     )
     > "venv\.deps_installed" echo %REQ_HASH%
 ) else (
-    echo [2/4] Dependencies already installed, skipping.
+    echo [2/5] Dependencies already installed, skipping.
 )
 
 REM --- 4. Translation models (one-time, needs internet) ----------------------
 if not exist "data\.models_downloaded" (
-    echo [3/4] Downloading translation models ^(first run only, needs internet^)...
+    echo [3/5] Downloading translation models ^(first run only, needs internet^)...
     python scripts\download_models.py
     if errorlevel 1 (
         echo [ERROR] Model download failed. Check your internet connection and re-run.
@@ -87,11 +87,18 @@ if not exist "data\.models_downloaded" (
     )
     echo done > data\.models_downloaded
 ) else (
-    echo [3/4] Translation models already downloaded, skipping.
+    echo [3/5] Translation models already downloaded, skipping.
 )
 
-REM --- 5. Launch ---------------------------------------------------------
-echo [4/4] Launching Lekha at http://localhost:8501 ...
+REM --- 5. Local AI (optional, one-time) -------------------------------------
+REM Never fatal: setup_ai.py always exits 0, so a failure here can only
+REM cost the optional polish pass, never the launch. Set LEKHA_SKIP_AI=1
+REM to skip it entirely.
+echo [4/5] Checking the local AI...
+python scripts\setup_ai.py
+
+REM --- 6. Launch ---------------------------------------------------------
+echo [5/5] Launching Lekha at http://localhost:8501 ...
 echo       Press Ctrl+C in this window to stop the app.
 echo.
 streamlit run app.py
