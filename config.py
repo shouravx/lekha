@@ -80,6 +80,63 @@ TRANSLATION_WORKERS: int = 2        # bounded thread pool for chunk translation
 PAGE_TIME_WINDOW: int = 12          # rolling window (pages) used for ETA calc
 CHECKPOINT_FLUSH_EVERY_PAGE: int = 1  # write checkpoint after every N pages
 
+# A failed chunk falls back to the untranslated source text, which is the
+# right call for one bad chunk and the wrong call for a backend that has
+# stopped responding entirely. Past this many *consecutive* failures the
+# job aborts rather than producing a confidently untranslated document.
+MAX_CONSECUTIVE_CHUNK_FAILURES: int = 12
+
+# ---------------------------------------------------------------------------
+# Hybrid pipeline: online translation backend (opt-in)
+# ---------------------------------------------------------------------------
+# Lekha's default path is 100% offline (Argos). The "hybrid" path trades
+# that privacy guarantee for speed: Google Translate does the heavy
+# vocabulary lifting over HTTP (near-zero local CPU), and an optional
+# small local LLM polishes the result. Both stages are off by default.
+DEFAULT_TRANSLATION_BACKEND: str = "argos"  # "argos" | "google"
+
+# The online backend is billed in HTTP round-trips, not CPU, so the
+# chunking economics invert: 400-char chunks would mean ~30,000 requests
+# for a 1000-page book and near-certain rate limiting. Send far more text
+# per request instead. Google's endpoint accepts ~5000 chars; stay under.
+ONLINE_MAX_CHUNK_CHARS: int = 3000
+ONLINE_TRANSLATION_WORKERS: int = 2   # concurrent HTTP requests, kept low
+ONLINE_MIN_REQUEST_INTERVAL: float = 0.15  # seconds between requests (global)
+ONLINE_REQUEST_TIMEOUT: int = 30      # per-request timeout, seconds
+ONLINE_MAX_RETRIES: int = 3           # retries on transient/rate-limit errors
+ONLINE_RETRY_BACKOFF: float = 2.0     # exponential backoff base, seconds
+
+# ---------------------------------------------------------------------------
+# Hybrid pipeline: local LLM refinement (opt-in)
+# ---------------------------------------------------------------------------
+# A small instruct model (3B class) run through Ollama smooths machine
+# translation into natural book prose. It only *edits* already-translated
+# text, so a 3B model on CPU is sufficient — no GPU required.
+REFINE_ENABLED_DEFAULT: bool = False
+OLLAMA_BASE_URL: str = "http://localhost:11434"
+REFINE_MODEL: str = "qwen2.5:3b"
+REFINE_TIMEOUT: int = 120             # per-block timeout, seconds
+REFINE_TEMPERATURE: float = 0.2       # low: we want edits, not invention
+REFINE_KEEP_ALIVE: str = "30m"        # keep model resident across a long job
+REFINE_MAX_RETRIES: int = 1
+
+# Refinement is by far the slowest stage, and cost scales with the number
+# of LLM calls. Translated chunks are re-joined into larger blocks before
+# refining so one call covers several chunks' worth of prose.
+REFINE_BLOCK_CHARS: int = 1200
+
+# Guardrails — a small model can hallucinate, answer in the wrong
+# language, or refuse. If refined output violates these bounds we discard
+# it and keep the raw machine translation for that block.
+REFINE_MIN_LENGTH_RATIO: float = 0.45  # output/input char ratio, lower bound
+REFINE_MAX_LENGTH_RATIO: float = 2.50  # ... and upper bound
+REFINE_MIN_SCRIPT_RETENTION: float = 0.50  # fraction of target-script density to keep
+
+# Unicode ranges used to verify the refiner answered in the target script.
+TARGET_SCRIPT_RANGES: dict[str, tuple[int, int]] = {
+    "bn": (0x0980, 0x09FF),  # Bengali
+}
+
 # ---------------------------------------------------------------------------
 # Output formats
 # ---------------------------------------------------------------------------

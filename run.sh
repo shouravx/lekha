@@ -44,7 +44,9 @@ fi
 source venv/bin/activate
 
 # --- 3. Dependencies -----------------------------------------------------------
-if [ ! -f "venv/.deps_installed" ]; then
+# Reinstall when requirements.txt has been edited since the last
+# install, rather than skipping forever once the marker exists.
+if [ ! -f "venv/.deps_installed" ] || [ requirements.txt -nt "venv/.deps_installed" ]; then
     echo "[2/4] Installing dependencies from requirements.txt..."
     pip install --upgrade pip >/dev/null
     pip install -r requirements.txt
