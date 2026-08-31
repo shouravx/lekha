@@ -98,6 +98,21 @@ def main() -> int:
 
     base_url = config.OLLAMA_BASE_URL
     model = args.model
+
+    # Answered from disk deliberately. Asking the API means waiting on a
+    # connection to a port that is usually not listening yet, which cost
+    # about four seconds on every launch for a question the filesystem
+    # can answer instantly.
+    binary, managed = ai_runtime.resolve_binary()
+    on_disk = ai_runtime.models_on_disk()
+    wanted = model if ":" in model else f"{model}:latest"
+    have_model = any(m == wanted or m == model or m.startswith(f"{model}:")
+                     for m in on_disk)
+
+    if not args.check and binary is not None and have_model:
+        print("      Local AI already set up, skipping.")
+        return 0
+
     status = ai_runtime.status(base_url)
 
     if args.check:
@@ -105,11 +120,6 @@ def main() -> int:
               f"{' (managed by Lekha)' if status.managed else ''}")
         print(f"      server : {'running' if status.server_running else 'stopped'}")
         print(f"      model  : {model} {'ready' if status.has_model(model) else 'not pulled'}")
-        return 0
-
-    # Nothing to do is the common case on every launch after the first.
-    if status.installed and status.has_model(model):
-        print("      Local AI already set up, skipping.")
         return 0
 
     progress = _Progress()

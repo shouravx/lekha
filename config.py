@@ -12,7 +12,20 @@ services/settings_service.py) and override the defaults declared here.
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
+
+# requests emits a RequestsDependencyWarning when chardet's version falls
+# outside the range it declares. chardet 7.x arrives here transitively and
+# the mismatch is harmless in practice — requests prefers
+# charset_normalizer, which is installed and in range. Left alone it
+# printed on every launch, twice, and buried the launcher's actual output.
+# Registered here because config is imported before anything reaches for
+# requests, and matched by message so no other warning is hidden.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*doesn't match a supported version.*",
+)
 
 # ---------------------------------------------------------------------------
 # Base paths

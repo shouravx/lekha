@@ -128,14 +128,51 @@ class AIRuntime:
             return Path(system), False
         return self._managed_binary(), True
 
+    def models_dir(self) -> Path:
+        """Where Ollama keeps its models, honouring OLLAMA_MODELS."""
+        override = os.environ.get("OLLAMA_MODELS", "").strip()
+        if override:
+            return Path(override)
+        return Path.home() / ".ollama" / "models"
+
+    def models_on_disk(self) -> list[str]:
+        """Installed models, read from their manifests rather than from
+        the API.
+
+        Asking the server means starting the server, and starting it just
+        to answer "is the model already here?" cost about ten seconds on
+        every single launch — on a check whose whole purpose is to be
+        instant when there is nothing to do. It also reported a pulled
+        model as missing whenever the server happened to be stopped.
+
+        Ollama lays manifests out as
+        models/manifests/<registry>/<namespace>/<name>/<tag>, so the
+        answer is already on disk.
+        """
+        root = self.models_dir() / "manifests"
+        if not root.exists():
+            return []
+        found: list[str] = []
+        try:
+            for tag in root.rglob("*"):
+                if tag.is_file():
+                    found.append(f"{tag.parent.name}:{tag.name}")
+        except OSError as exc:
+            logger.debug("Could not read the model manifests: %s", exc)
+        return found
+
     def status(self, base_url: str = "") -> RuntimeStatus:
         binary, managed = self.resolve_binary()
-        models = self._list_models(base_url or config.OLLAMA_BASE_URL)
+        served = self._list_models(base_url or config.OLLAMA_BASE_URL)
+        # Prefer what the server reports when it is up, since that is
+        # authoritative; fall back to the manifests when it is not, so a
+        # stopped server never looks like a missing model.
+        models = served if served is not None else self.models_on_disk()
         return RuntimeStatus(
             binary=binary,
             managed=managed and binary is not None,
-            server_running=models is not None,
-            models=models or [],
+            server_running=served is not None,
+            models=models,
         )
 
     def _list_models(self, base_url: str) -> Optional[list[str]]:
@@ -143,7 +180,10 @@ class AIRuntime:
         try:
             import requests
 
-            response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=4)
+            # A server on loopback either answers immediately or is not
+            # running. A long timeout here is time spent waiting on a
+            # port nothing is listening to.
+            response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=1.5)
             response.raise_for_status()
             return [m.get("name", "") for m in response.json().get("models", [])]
         except Exception:  # noqa: BLE001
@@ -168,8 +208,20 @@ class AIRuntime:
         """Downloads, verifies and extracts the runtime. Returns the binary."""
         import requests
 
-        def report(message: str, fraction: float = -1.0) -> None:
-            logger.info("%s", message)
+        def report(message: str, fraction: float = -1.0, milestone: bool = False) -> None:
+            """Sends progress to the caller's display, and to the log only
+            at milestones.
+
+            The logger has a console handler, so logging every progress
+            tick prints a line per chunk — about 1,400 of them for this
+            download — and each one breaks the carriage-return rewrite the
+            caller is using. The result was the opposite of the intent: a
+            wall of scrolling text instead of one updating line. Progress
+            belongs to the display; the log wants the four events that
+            matter.
+            """
+            if milestone:
+                logger.info("%s", message)
             if progress:
                 progress(message, fraction)
 
@@ -179,7 +231,7 @@ class AIRuntime:
                 f"There is no Ollama build for {platform.system()} {platform.machine()}."
             )
 
-        report("Looking up the current Ollama release…")
+        report("Looking up the current Ollama release...", milestone=True)
         release = requests.get(RELEASE_API, timeout=30).json()
         tag = release.get("tag_name", "unknown")
         assets = {a.get("name"): a for a in release.get("assets", [])}
@@ -193,7 +245,7 @@ class AIRuntime:
         url = assets[asset_name]["browser_download_url"]
         total = int(assets[asset_name].get("size", 0))
 
-        report(f"Downloading Ollama {tag} ({total / 1048576:.0f} MB)…", 0.0)
+        report(f"Downloading Ollama {tag} ({total / 1048576:.0f} MB)", 0.0, milestone=True)
         digest = hashlib.sha256()
         written = 0
         with requests.get(url, stream=True, timeout=60) as response:
@@ -220,14 +272,14 @@ class AIRuntime:
                     "The downloaded Ollama archive failed its checksum and was deleted. "
                     f"Expected {expected[:16]}…, got {actual[:16]}…"
                 )
-            report("Checksum verified.")
+            report("Checksum verified.", milestone=True)
         else:
             # Not fatal — the release may not publish one — but the user
             # should know the guarantee was weaker than usual.
             logger.warning("No published checksum for %s; skipped verification.", asset_name)
-            report("No published checksum for this asset; skipped verification.")
+            report("No published checksum for this asset; skipped verification.", milestone=True)
 
-        report("Extracting…", -1.0)
+        report("Extracting...", -1.0, milestone=True)
         self._extract(archive, self.root)
         archive.unlink(missing_ok=True)
 
@@ -237,7 +289,7 @@ class AIRuntime:
         if os.name != "nt":
             binary.chmod(binary.stat().st_mode | 0o111)
 
-        report(f"Ollama {tag} is installed.", 1.0)
+        report(f"Ollama {tag} is installed.", 1.0, milestone=True)
         return binary
 
     def _expected_digest(self, assets: dict, asset_name: str) -> str:
