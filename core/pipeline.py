@@ -38,6 +38,7 @@ import config
 from core import chunker, document_builder
 from core.document_model import Block, BlockKind, Run, blocks_to_plain_text
 from core.pdf_extractor import PDFCorruptedError, PDFExtractor
+from core.protect import reassemble, split_protected, translatable_cores
 from core.translator_engine import (
     BackendUnresponsiveError,
     ModelNotInstalledError,
@@ -119,6 +120,14 @@ class TranslationPipeline:
         self._pages_done_fractional = 0.0
         self._run_started_at = 0.0
 
+        # Terms the user has taught Lekha, and the findings the recheck
+        # pass collects. The glossary is read once per job so an edit
+        # mid-job cannot change the rules half way through a document.
+        from services.glossary_service import glossary_service
+
+        self.glossary = glossary_service.for_pair(job.source_lang, job.target_lang)
+        self._findings: list = []
+
     # -- public entrypoint ---------------------------------------------------
     def run(self) -> None:
         job = self.job
@@ -128,6 +137,7 @@ class TranslationPipeline:
 
         try:
             self._preflight_engine()
+            self._warm_up_engine()
             self._preflight_refiner()
 
             self.log(f"Starting translation of '{job.original_filename}'.")
@@ -145,6 +155,7 @@ class TranslationPipeline:
                 return
 
             self._log_refinement_summary()
+            self._log_recheck_summary()
 
             self.log("All pages translated. Building output document(s)...")
             self._build_outputs()
@@ -203,6 +214,30 @@ class TranslationPipeline:
             "Run `python scripts/download_models.py` once with internet access."
         )
 
+    def _warm_up_engine(self) -> None:
+        """Forces one-time model initialisation on a single thread.
+
+        Argos initialises stanza lazily on first use, and part of that is
+        renaming a temp file into place. When several worker threads reach
+        it simultaneously one wins the rename and the others fail with
+        "[WinError 5] Access is denied". A chunk that fails falls back to
+        the untranslated source text, so the symptom was a document that
+        looked complete with one random segment left in English — silent,
+        intermittent, and invisible until the recheck pass started
+        reporting it.
+
+        Translating one short string before the pool starts makes the race
+        impossible: initialisation happens once, on this thread, with
+        nothing else contending.
+        """
+        try:
+            self.engine.translate("Lekha", self.job.source_lang, self.job.target_lang)
+        except Exception as exc:  # noqa: BLE001
+            # A warm-up failure is not itself fatal — the real preflight
+            # already established the backend is usable, and a transient
+            # error here would otherwise fail a job that could run.
+            logger.debug("Engine warm-up did not complete: %s", exc)
+
     def _preflight_refiner(self) -> None:
         """Resolves the LLM refiner, if the job asked for one.
 
@@ -247,6 +282,22 @@ class TranslationPipeline:
         refiner.reset_stats()
         self.refiner = refiner
         self.log(f"LLM refinement enabled using '{refiner.model}' via Ollama.")
+
+    def _log_recheck_summary(self) -> None:
+        """Reports what the recheck found. Findings are never repaired
+        automatically — an unattended fix to text nobody has read is how
+        one bad rule rewrites a whole document."""
+        from core import recheck
+
+        total_pages = self.job.total_pages or 0
+        self.log(recheck.summarise(self._findings, total_pages))
+        for line in recheck.detail_lines(self._findings):
+            self.log(line)
+        if self._findings:
+            self.log(
+                "Add a term under Settings -> Glossary to fix a name or label "
+                "for good; it is applied to every job from then on."
+            )
 
     def _log_refinement_summary(self) -> None:
         if self.refiner is None:
@@ -374,6 +425,14 @@ class TranslationPipeline:
         if self.refine_enabled and self.refiner is not None:
             translated = self._refine_blocks(translated)
 
+        # Verify the invariants that hold whatever the language: protected
+        # spans preserved, nothing silently emptied or left untranslated.
+        from core import recheck
+
+        self._findings.extend(recheck.check_page(
+            page.page_num, blocks, translated, job.source_lang, job.target_lang
+        ))
+
         return translated
 
     def _translate_blocks(self, blocks: list[Block], pool: ThreadPoolExecutor) -> list[Block]:
@@ -446,8 +505,28 @@ class TranslationPipeline:
         return out
 
     def _translate_text_safe(self, text: str) -> str:
-        """Translates one string, chunking it first if it exceeds the
-        backend's per-request size."""
+        """Translates one string, keeping protected spans out of the engine.
+
+        An email address, a URL, a phone number or a term in the glossary
+        is split out first and never reaches the model; only the
+        translatable pieces between them are sent. Masking those spans
+        with placeholders was measured and rejected — no placeholder
+        scheme survived the engine reliably (see core/protect.py).
+        """
+        segments = split_protected(text, self.glossary)
+
+        if len(segments) == 1 and not segments[0].protected:
+            return self._translate_plain(text)
+
+        cores = translatable_cores(segments)
+        translated = [self._translate_plain(core) for core in cores]
+        return reassemble(segments, translated)
+
+    def _translate_plain(self, text: str) -> str:
+        """Translates one already-protected string, chunking it first if
+        it exceeds the backend's per-request size."""
+        if not text.strip():
+            return text
         if len(text) <= self.max_chunk_chars:
             return self._translate_chunk_safe(text)
         chunks = chunker.split_into_chunks(text, max_chars=self.max_chunk_chars)

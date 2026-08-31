@@ -20,12 +20,16 @@ def render() -> None:
 
     settings = settings_service.get_all()
 
-    tab_translation, tab_hybrid, tab_ocr, tab_output, tab_appearance, tab_about = st.tabs(
-        ["Translation", "Hybrid", "OCR", "Output", "Appearance", "About"]
+    (tab_translation, tab_glossary, tab_hybrid, tab_ocr, tab_output,
+     tab_appearance, tab_about) = st.tabs(
+        ["Translation", "Glossary", "Hybrid", "OCR", "Output", "Appearance", "About"]
     )
 
     with tab_translation:
         _render_translation_settings(settings)
+
+    with tab_glossary:
+        _render_glossary_settings(settings)
 
     with tab_hybrid:
         _render_hybrid_settings(settings)
@@ -485,3 +489,110 @@ def _render_about(settings: dict) -> None:
             settings_service.reset_to_defaults()
             st.toast("Settings reset to defaults.")
             st.rerun()
+
+
+def _render_glossary_settings(settings: dict) -> None:
+    """Terms Lekha has been taught: what never to translate, and what to
+    translate a fixed way."""
+    from services.glossary_service import KEEP, REPLACE, glossary_service
+    from ui.components import empty_state, section
+
+    target_lang = settings.get("default_target_lang", "bn")
+    lang_name = config.SUPPORTED_LANGUAGES.get(target_lang, target_lang)
+
+    with st.container(border=True):
+        st.markdown("##### Add a term")
+        st.caption(
+            "Machine translation has no idea which words are names. It rendered "
+            "**ArchTech BD** as a phonetic guess and **Tel:** as *তেল* — Bengali for "
+            "*oil*. A term added here is applied to every job from now on."
+        )
+
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            source_term = st.text_input(
+                "Term as it appears in the source",
+                key="gloss_source",
+                placeholder="ArchTech BD",
+            )
+        with c2:
+            mode_labels = {
+                KEEP: "Never translate it",
+                REPLACE: f"Always translate it as…",
+            }
+            mode = st.radio(
+                "What should happen",
+                options=[KEEP, REPLACE],
+                format_func=lambda m: mode_labels[m],
+                key="gloss_mode",
+            )
+
+        target_term = ""
+        if mode == REPLACE:
+            target_term = st.text_input(
+                f"{lang_name} translation to always use",
+                key="gloss_target",
+                placeholder="ফোন:",
+            )
+
+        if st.button("Add term", type="primary", key="gloss_add"):
+            if not source_term.strip():
+                st.error("Enter the term as it appears in the source document.")
+            elif mode == REPLACE and not target_term.strip():
+                st.error(f"Enter the {lang_name} text to use for this term.")
+            else:
+                glossary_service.add(
+                    source_term, mode=mode, target=target_term,
+                    target_lang=target_lang if mode == REPLACE else "",
+                )
+                st.toast(f"Added '{source_term.strip()}'.")
+                st.rerun()
+
+    st.write("")
+    entries = glossary_service.all_entries()
+    section(f"Your terms ({len(entries)})", "file-text")
+
+    with st.container(border=True):
+        if not entries:
+            empty_state(
+                "search",
+                "No terms yet",
+                "Add a brand name above and it will stop being translated.",
+            )
+        else:
+            for entry in entries:
+                source_term = str(entry.get("source", ""))
+                entry_mode = entry.get("mode", KEEP)
+                c1, c2, c3 = st.columns([3, 3, 1.2])
+                with c1:
+                    st.markdown(f"**{source_term}**")
+                with c2:
+                    if entry_mode == REPLACE:
+                        st.markdown(f"→ {entry.get('target', '')}")
+                    else:
+                        st.caption("kept as-is, never translated")
+                with c3:
+                    if st.button(
+                        "Remove",
+                        key=f"gloss_del_{source_term}",
+                        use_container_width=True,
+                    ):
+                        glossary_service.remove(source_term)
+                        st.rerun()
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown("##### What is protected automatically")
+        st.caption(
+            "These need no glossary entry — they are never sent to the translation "
+            "engine at all, so they cannot be altered by it."
+        )
+        for label in (
+            "Email addresses", "Web addresses and URLs", "Phone numbers",
+            "File paths and file names", "Version numbers",
+        ):
+            st.markdown(
+                f'<div class="lk-row"><span class="lk-row-label">{label}</span>'
+                '<span class="lk-meta">protected</span></div>',
+                unsafe_allow_html=True,
+            )
