@@ -1,333 +1,662 @@
 /* ===========================================================================
-   Lekha — Dark Glassmorphism Theme
-   Inspired by Notion, Linear, Raycast, and ChatGPT Desktop.
-   100% offline: uses the OS system font stack, no external font/CDN calls.
+   Lekha — Liquid Glass
+   ---------------------------------------------------------------------------
+   Structure only. Every colour, blur, shadow and radius comes from tokens
+   emitted by ui/theme.py for the active theme, so this file is identical in
+   light and dark and there is exactly one place a palette can drift.
    =========================================================================== */
 
 :root {
-  --bg-base: #0a0a0f;
-  --bg-elevated: #11121a;
-  --bg-card: rgba(255, 255, 255, 0.035);
-  --bg-card-hover: rgba(255, 255, 255, 0.06);
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
+  /* Continuous-feeling corners: large radii read closer to a lens than to
+     a rounded rectangle, which is what keeps glass from looking like a
+     bevelled box. */
+  --r-xl: 24px;
+  --r-lg: 18px;
+  --r-md: 12px;
+  --r-sm: 9px;
+  --r-pill: 999px;
 
-  --text-primary: #f2f3f7;
-  --text-secondary: #a3a7b7;
-  --text-muted: #6b6f80;
+  /* Fixed rem scale at a ~1.15 ratio. Product UI has many more type roles
+     than a brand surface, so exaggerated contrast between steps reads as
+     noise rather than hierarchy. No fluid clamping: users sit at a
+     consistent DPI and a heading that shrinks inside a column looks
+     broken, not responsive. */
+  --t-xs: 0.75rem;
+  --t-sm: 0.8125rem;
+  --t-base: 0.875rem;
+  --t-md: 0.9375rem;
+  --t-lg: 1.0625rem;
+  --t-xl: 1.25rem;
+  --t-2xl: 1.6875rem;
 
-  --accent: var(--accent-violet);
-  --accent-violet: #8b6df0;
-  --accent-violet-soft: rgba(139, 109, 240, 0.16);
-  --accent-blue: #5b9dff;
-  --accent-blue-soft: rgba(91, 157, 255, 0.16);
-  --accent-green: #3ecf8e;
-  --accent-green-soft: rgba(62, 207, 142, 0.16);
-  --accent-amber: #f0a84d;
-  --accent-amber-soft: rgba(240, 168, 77, 0.16);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
 
-  --success: #3ecf8e;
-  --warning: #f0a84d;
-  --danger: #f06d6d;
-  --info: #5b9dff;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 180ms;
 
-  --radius-lg: 18px;
-  --radius-md: 12px;
-  --radius-sm: 8px;
-
-  --font-sans: -apple-system, "Segoe UI Variable", "Segoe UI", "SF Pro Display",
-    Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+    Consolas, "Liberation Mono", monospace;
 }
 
 /* ---------------------------------------------------------------------- */
-/* Base canvas                                                             */
+/* Ground                                                                  */
 /* ---------------------------------------------------------------------- */
-html, body, [data-testid="stAppViewContainer"] {
-  background: radial-gradient(circle at 15% 0%, #15131f 0%, var(--bg-base) 45%) !important;
+html,
+body,
+[data-testid="stAppViewContainer"] {
+  background-color: var(--ground) !important;
   font-family: var(--font-sans) !important;
-  color: var(--text-primary);
+  color: var(--text);
+  color-scheme: var(--scheme);
 }
 
-[data-testid="stHeader"] {
-  background: transparent !important;
+/* The lit field the glass refracts. Fixed rather than scrolling: the panes
+   move over the light, which is what makes the material read as glass and
+   not as a printed texture. */
+[data-testid="stAppViewContainer"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: var(--ground-wash);
+  pointer-events: none;
+  z-index: 0;
 }
+
+[data-testid="stAppViewContainer"] > * { position: relative; z-index: 1; }
+
+/* Streamlit's toolbar floats above the page. Left fully transparent it
+   sits directly on top of whatever scrolls under it; a glass bar keeps
+   both legible and matches the material. */
+[data-testid="stHeader"] {
+  background: var(--rail) !important;
+  backdrop-filter: blur(18px) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(18px) saturate(var(--saturate));
+}
+[data-testid="stToolbar"] { color: var(--text-secondary); }
 
 .block-container {
-  padding-top: 2rem !important;
-  padding-bottom: 3rem !important;
-  max-width: 1180px;
+  padding-top: var(--space-6) !important;
+  padding-bottom: var(--space-6) !important;
+  max-width: 1200px;
 }
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
-}
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
 
 /* ---------------------------------------------------------------------- */
-/* Sidebar                                                                  */
+/* Browser surfaces                                                        */
+/* The parts nobody draws still ship with a design system's colours, or    */
+/* they ship with the browser's. These are the cheapest tell that a page   */
+/* was assembled rather than built.                                        */
+/* ---------------------------------------------------------------------- */
+::selection { background: var(--selection); color: var(--text); }
+
+input, textarea { caret-color: var(--accent) !important; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--glass-border-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--glass-border-strong);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--field-hover); background-clip: content-box; }
+
+/* One focus treatment for everything focusable, so keyboard users get the
+   same affordance on a button, a field and a tab. */
+:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+  border-radius: var(--r-sm);
+}
+
+/* Figures that change in place must not reflow while they change. */
+[data-testid="stMetricValue"],
+.lk-stat-value,
+.lk-meta,
+.log-console { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------------- */
+/* Typography                                                              */
+/* ---------------------------------------------------------------------- */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text) !important;
+  letter-spacing: -0.02em;
+  font-weight: 650 !important;
+}
+p, span, label, li, .stMarkdown { color: var(--text-secondary); }
+
+.page-head { margin-bottom: var(--space-6); }
+.page-title {
+  font-size: var(--t-2xl);
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.03em;
+  margin: 0 0 var(--space-1);
+  text-wrap: balance;
+}
+.page-subtitle {
+  font-size: var(--t-md);
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 68ch;
+}
+
+/* More space above a heading than below it. */
+.stMarkdown h4, .stMarkdown h5 {
+  margin-top: var(--space-5) !important;
+  margin-bottom: var(--space-2) !important;
+  font-size: var(--t-md) !important;
+  letter-spacing: -0.01em;
+}
+
+.lk-icon { display: inline-block; vertical-align: -0.18em; flex: none; }
+
+/* ---------------------------------------------------------------------- */
+/* The glass material                                                      */
+/*                                                                         */
+/* Four things have to agree or a pane reads as a flat translucent box:    */
+/* refraction (blur + saturation), a specular hairline where light catches */
+/* the top edge, a body tint, and an offset cast shadow.                   */
+/* ---------------------------------------------------------------------- */
+[data-testid="stVerticalBlockBorderWrapper"],
+.lk-glass {
+  position: relative;
+  background: var(--glass) !important;
+  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--r-lg) !important;
+  box-shadow: var(--shadow);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+/* The specular edge. A gradient ring masked to the border box, brightest
+   along the top where the light is and gone by the time the edge turns
+   away from it. A uniform bright border is a bevel, not a highlight. */
+[data-testid="stVerticalBlockBorderWrapper"]::before,
+.lk-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    180deg,
+    var(--specular) 0%,
+    var(--specular-soft) 24%,
+    transparent 58%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Nested panes: one pane inside another must not stack two sheets of glass.
+   The inner one becomes a plain grouping, keeping the hierarchy legible
+   instead of doubling the material. */
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlockBorderWrapper"] {
+  background: transparent !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: var(--glass-border) !important;
+  box-shadow: none;
+  border-radius: var(--r-md) !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlockBorderWrapper"]::before {
+  display: none;
+}
+
+/* Opt out where a container is only a layout device. */
+[data-testid="stVerticalBlockBorderWrapper"]:has(.lk-plain) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.lk-plain)::before { display: none; }
+
+/* ---------------------------------------------------------------------- */
+/* Rail                                                                    */
+/* A second neutral layer, cooler than the content surface, so the two     */
+/* planes never read as the same sheet.                                    */
 /* ---------------------------------------------------------------------- */
 [data-testid="stSidebar"] {
-  background: linear-gradient(180deg, #0d0c14 0%, #0a0a0f 100%) !important;
-  border-right: 1px solid var(--border-subtle);
+  background: var(--rail) !important;
+  backdrop-filter: blur(30px) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(30px) saturate(var(--saturate));
+  border-right: 1px solid var(--rail-border) !important;
 }
-[data-testid="stSidebar"] .block-container {
-  padding-top: 1.5rem;
-}
+[data-testid="stSidebar"] .block-container { padding-top: var(--space-5); }
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: var(--space-1); }
 
-.sidebar-brand {
+.lk-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 4px 18px 4px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-1) var(--space-5);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--rail-border);
 }
-.sidebar-brand .logo {
-  width: 34px; height: 34px;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
-  background: linear-gradient(135deg, var(--accent) 0%, #5b9dff 100%);
-  box-shadow: 0 4px 16px var(--accent-violet-soft);
+.lk-brand .lk-mark {
+  width: 36px; height: 36px;
+  border-radius: var(--r-md);
+  display: grid; place-items: center;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--specular);
+  flex: none;
 }
-.sidebar-brand .title { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--text-primary); }
-.sidebar-brand .subtitle { font-size: 11px; color: var(--text-muted); margin-top: -2px; }
+.lk-brand .lk-name {
+  font-size: var(--t-lg); font-weight: 680; color: var(--text);
+  letter-spacing: -0.02em; line-height: 1.1;
+}
+.lk-brand .lk-tag {
+  font-size: var(--t-xs); color: var(--text-muted); line-height: 1.3; margin-top: 2px;
+}
 
-/* Sidebar nav buttons */
 [data-testid="stSidebar"] .stButton button {
   width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  font-weight: 500;
-  font-size: 14.5px;
-  border-radius: var(--radius-sm);
-  padding: 0.55rem 0.85rem;
-  margin-bottom: 2px;
-  transition: all 0.15s ease;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--text-secondary) !important;
+  font-weight: 550 !important;
+  font-size: var(--t-md) !important;
+  border-radius: var(--r-md) !important;
+  padding: 0.5rem 0.7rem !important;
   box-shadow: none !important;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 [data-testid="stSidebar"] .stButton button:hover {
-  background: var(--bg-card-hover);
-  color: var(--text-primary);
-  border-color: var(--border-subtle);
-}
-[data-testid="stSidebar"] .stButton button:focus:not(:active) {
-  color: var(--text-primary);
+  background: var(--glass-strong) !important;
+  color: var(--text) !important;
 }
 
-/* Nav items sit in their own stacked blocks; Streamlit's default block
-   gap left ~50px of dead air between 45px-tall buttons. */
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.25rem; }
-[data-testid="stSidebar"] .stButton { margin-bottom: 0; }
-
-.sidebar-footer {
-  margin-top: 28px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 11px;
+.lk-rail-foot {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--rail-border);
+  font-size: var(--t-xs);
   color: var(--text-muted);
+  display: flex; align-items: center; gap: 6px;
 }
 
 /* ---------------------------------------------------------------------- */
-/* Typography                                                               */
+/* Buttons — every state, one vocabulary                                   */
 /* ---------------------------------------------------------------------- */
-h1, h2, h3, h4 { color: var(--text-primary) !important; letter-spacing: -0.02em; font-weight: 700 !important; }
-p, span, label, .stMarkdown { color: var(--text-secondary); }
-.page-title { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
-.page-subtitle { font-size: 14.5px; color: var(--text-muted); margin-bottom: 28px; }
-
-/* ---------------------------------------------------------------------- */
-/* Glass cards (native st.container(border=True) wrapper)                  */
-/* ---------------------------------------------------------------------- */
-[data-testid="stVerticalBlockBorderWrapper"] {
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: var(--radius-lg) !important;
-  backdrop-filter: blur(18px);
-  padding: 4px;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-[data-testid="stVerticalBlockBorderWrapper"]:has(.no-card-style) {
-  background: transparent !important;
-  border: none !important;
-  backdrop-filter: none;
-}
-
-/* Custom raw-HTML cards (used for stat tiles, badges, log panels) */
-.glass-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 20px 22px;
-  backdrop-filter: blur(18px);
-}
-.glass-card:hover { border-color: var(--border-strong); }
-
-/* Stat tiles — a fixed floor keeps the row even when one label wraps to
-   two lines, which otherwise leaves a single tile taller than its
-   neighbours and makes the row look misaligned. */
-.stat-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 138px;
-  height: 100%;
-  box-sizing: border-box;
-  justify-content: flex-start;
-}
-.stat-tile .stat-label { line-height: 1.35; }
-
-/* Columns in a row stretch to the tallest, so a tile whose label wraps
-   to two lines no longer leaves its neighbours short. */
-[data-testid="stHorizontalBlock"] { align-items: stretch; }
-[data-testid="stColumn"] > [data-testid="stVerticalBlock"] { height: 100%; }
-.stat-tile .stat-icon {
-  width: 34px; height: 34px; border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; margin-bottom: 6px;
-}
-.stat-tile .stat-value { font-size: 26px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
-.stat-tile .stat-label { font-size: 13px; color: var(--text-muted); }
-
-/* Status badges */
-.badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 11px; border-radius: 999px;
-  font-size: 12.5px; font-weight: 600;
-  border: 1px solid transparent;
-}
-.badge-dot { width: 6px; height: 6px; border-radius: 50%; }
-.badge-running { background: var(--accent-blue-soft); color: var(--accent-blue); border-color: rgba(91,157,255,0.3); }
-.badge-running .badge-dot { background: var(--accent-blue); animation: pulse 1.4s infinite; }
-.badge-completed { background: var(--accent-green-soft); color: var(--accent-green); border-color: rgba(62,207,142,0.3); }
-.badge-completed .badge-dot { background: var(--accent-green); }
-.badge-failed { background: rgba(240,109,109,0.14); color: var(--danger); border-color: rgba(240,109,109,0.3); }
-.badge-failed .badge-dot { background: var(--danger); }
-.badge-cancelled { background: rgba(255,255,255,0.06); color: var(--text-muted); border-color: var(--border-subtle); }
-.badge-cancelled .badge-dot { background: var(--text-muted); }
-.badge-queued { background: var(--accent-amber-soft); color: var(--accent-amber); border-color: rgba(240,168,77,0.3); }
-.badge-queued .badge-dot { background: var(--accent-amber); }
-
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-/* ---------------------------------------------------------------------- */
-/* Buttons                                                                  */
-/* ---------------------------------------------------------------------- */
-.stButton button, .stDownloadButton button {
-  border-radius: var(--radius-sm) !important;
-  font-weight: 600 !important;
-  border: 1px solid var(--border-subtle) !important;
-  background: var(--bg-card) !important;
-  color: var(--text-primary) !important;
-  transition: all 0.15s ease !important;
-  /* A narrow column must never break a label mid-word — "Open" was
-     rendering as "Ope / n" in the dashboard's action column. */
+.stButton button,
+.stDownloadButton button,
+.stFormSubmitButton button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   white-space: nowrap;
+  font-family: var(--font-sans) !important;
+  font-size: var(--t-base) !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+  background: var(--glass-strong) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--r-md) !important;
+  padding: 0.45rem 0.9rem !important;
+  box-shadow: inset 0 1px 0 var(--specular-soft);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.stButton button p, .stDownloadButton button p { white-space: nowrap; }
-.stButton button:hover, .stDownloadButton button:hover {
-  border-color: var(--border-strong) !important;
-  background: var(--bg-card-hover) !important;
+.stButton button p, .stDownloadButton button p { white-space: nowrap; color: inherit !important; }
+
+.stButton button:hover:not(:disabled),
+.stDownloadButton button:hover:not(:disabled) {
+  background: var(--glass-hover) !important;
+  border-color: var(--glass-border-strong) !important;
 }
-.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {
-  background: linear-gradient(135deg, var(--accent) 0%, #6e8ef5 100%) !important;
-  border: none !important;
-  color: #0a0a0f !important;
-  box-shadow: 0 6px 20px var(--accent-violet-soft);
+/* Press reads as the surface taking the load, not as a bounce. */
+.stButton button:active:not(:disabled),
+.stDownloadButton button:active:not(:disabled) { transform: translateY(1px); }
+
+.stButton button:disabled,
+.stDownloadButton button:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
 }
-.stButton button[kind="primary"]:hover { filter: brightness(1.08); }
+
+/* The one filled accent surface on any screen. */
+.stButton button[kind="primary"],
+.stFormSubmitButton button[kind="primary"],
+.stDownloadButton button[kind="primary"] {
+  background: var(--accent) !important;
+  border-color: transparent !important;
+  color: var(--text-on-accent) !important;
+  box-shadow: var(--shadow), inset 0 1px 0 var(--specular);
+}
+.stButton button[kind="primary"] p { color: var(--text-on-accent) !important; }
+.stButton button[kind="primary"]:hover:not(:disabled) {
+  filter: brightness(1.07);
+  box-shadow: var(--shadow-raised), inset 0 1px 0 var(--specular);
+}
 
 /* ---------------------------------------------------------------------- */
-/* Inputs                                                                   */
+/* Fields                                                                  */
 /* ---------------------------------------------------------------------- */
-.stTextInput input, .stSelectbox div[data-baseweb="select"], .stTextArea textarea,
-.stNumberInput input {
-  background: var(--bg-elevated) !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: var(--radius-sm) !important;
-  color: var(--text-primary) !important;
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div,
+.stMultiSelect div[data-baseweb="select"] > div,
+.stDateInput input {
+  background: var(--field) !important;
+  border: 1px solid var(--field-border) !important;
+  border-radius: var(--r-md) !important;
+  color: var(--text) !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--t-base) !important;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-/* Multiselect chips ship bright red by default, which reads as an error
-   state and clashes with the accent. */
+.stTextInput input:hover,
+.stNumberInput input:hover,
+.stSelectbox div[data-baseweb="select"] > div:hover {
+  border-color: var(--field-hover) !important;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+label, [data-testid="stWidgetLabel"] p {
+  color: var(--text-secondary) !important;
+  font-size: var(--t-sm) !important;
+  font-weight: 550 !important;
+}
+
+/* Chips read as selections, not as errors. Streamlit ships them red. */
 [data-baseweb="tag"] {
-  background-color: var(--accent-violet-soft) !important;
-  border: 1px solid var(--accent) !important;
-  color: var(--text-primary) !important;
+  background: var(--accent) !important;
+  border: none !important;
+  border-radius: var(--r-sm) !important;
+  color: var(--text-on-accent) !important;
+  font-weight: 600 !important;
 }
-[data-baseweb="tag"] span, [data-baseweb="tag"] svg { color: var(--text-primary) !important; }
-[data-baseweb="tag"] svg { fill: var(--text-primary) !important; }
+[data-baseweb="tag"] span, [data-baseweb="tag"] svg { color: var(--text-on-accent) !important; }
+[data-baseweb="tag"] svg { fill: var(--text-on-accent) !important; }
 
+/* Menus and popovers are portalled outside the app container, so they miss
+   every inherited surface rule unless they are themed explicitly. */
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="menu"], [data-baseweb="popover"] ul {
+  background: var(--glass-strong) !important;
+  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: var(--shadow-raised);
+}
+[data-baseweb="menu"] li { color: var(--text) !important; }
+[data-baseweb="menu"] li:hover { background: var(--glass-hover) !important; }
+
+/* Toggles and checkboxes */
+[data-baseweb="switch"] div[aria-checked="true"] { background: var(--accent) !important; }
+[data-testid="stCheckbox"] svg { color: var(--accent) !important; }
+
+/* Sliders */
+[data-testid="stSlider"] [role="slider"] {
+  background: var(--accent) !important;
+  box-shadow: var(--shadow), inset 0 1px 0 var(--specular) !important;
+}
+[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background"] { border-radius: var(--r-pill) !important; }
+
+/* Dropzone */
 [data-testid="stFileUploaderDropzone"] {
-  background: var(--bg-card) !important;
-  border: 1.5px dashed var(--border-strong) !important;
-  border-radius: var(--radius-lg) !important;
+  background: var(--glass) !important;
+  border: 1.5px dashed var(--field-border) !important;
+  border-radius: var(--r-lg) !important;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--accent) !important; }
+[data-testid="stFileUploaderDropzone"]:hover {
+  border-color: var(--accent) !important;
+  background: var(--glass-strong) !important;
+}
+[data-testid="stFileUploaderDropzone"] small { color: var(--text-muted) !important; }
 
-/* Progress bar */
-[data-testid="stProgress"] div div {
-  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-blue) 100%) !important;
-  border-radius: 999px !important;
-}
+/* ---------------------------------------------------------------------- */
+/* Progress — the one place motion is earned, because it reports state     */
+/* ---------------------------------------------------------------------- */
 [data-testid="stProgress"] > div {
-  background: var(--bg-elevated) !important;
-  border-radius: 999px !important;
+  background: var(--field) !important;
+  border-radius: var(--r-pill) !important;
+  overflow: hidden;
 }
+[data-testid="stProgress"] div div {
+  background: var(--accent) !important;
+  border-radius: var(--r-pill) !important;
+  position: relative;
+  overflow: hidden;
+}
+[data-testid="stProgress"] div div::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--specular), transparent);
+  transform: translateX(-100%);
+  animation: lk-sheen 1.9s var(--ease) infinite;
+}
+@keyframes lk-sheen { to { transform: translateX(100%); } }
 
 /* Metrics */
 [data-testid="stMetric"] {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 14px 18px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: var(--space-3) var(--space-4);
 }
-[data-testid="stMetricValue"] { color: var(--text-primary) !important; }
-[data-testid="stMetricLabel"] { color: var(--text-muted) !important; }
+[data-testid="stMetricValue"] { color: var(--text) !important; font-size: var(--t-xl) !important; }
+[data-testid="stMetricLabel"] p { color: var(--text-muted) !important; font-size: var(--t-xs) !important; }
+
+/* ---------------------------------------------------------------------- */
+/* Stat tiles                                                              */
+/* ---------------------------------------------------------------------- */
+.lk-stat {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  height: 100%; box-sizing: border-box; min-height: 132px;
+}
+.lk-stat-icon {
+  width: 34px; height: 34px; border-radius: var(--r-sm);
+  display: grid; place-items: center; margin-bottom: var(--space-1);
+}
+.lk-stat-value {
+  font-size: var(--t-2xl); font-weight: 700; color: var(--text);
+  letter-spacing: -0.03em; line-height: 1.05;
+}
+.lk-stat-label { font-size: var(--t-sm); color: var(--text-muted); line-height: 1.35; }
+
+/* Columns stretch so a label wrapping to two lines cannot leave its
+   neighbours short. */
+[data-testid="stHorizontalBlock"] { align-items: stretch; }
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] { height: 100%; }
+
+/* ---------------------------------------------------------------------- */
+/* Badges                                                                  */
+/* ---------------------------------------------------------------------- */
+.lk-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: var(--t-xs); font-weight: 650; letter-spacing: 0.01em;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.lk-badge .lk-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.lk-badge-running   { background: var(--info-soft);    color: var(--info);    border-color: var(--info); }
+.lk-badge-running .lk-dot   { background: var(--info); animation: lk-pulse 1.5s ease-in-out infinite; }
+.lk-badge-completed { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+.lk-badge-completed .lk-dot { background: var(--success); }
+.lk-badge-failed    { background: var(--danger-soft);  color: var(--danger);  border-color: var(--danger); }
+.lk-badge-failed .lk-dot    { background: var(--danger); }
+.lk-badge-queued    { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+.lk-badge-queued .lk-dot    { background: var(--warning); }
+.lk-badge-cancelled { background: var(--glass-strong); color: var(--text-muted); border-color: var(--glass-border); }
+.lk-badge-cancelled .lk-dot { background: var(--text-muted); }
+@keyframes lk-pulse { 50% { opacity: 0.3; } }
+
+/* Inactive states never carry a saturated fill. */
+.lk-meta { font-size: var(--t-xs); color: var(--text-muted); }
+
+/* ---------------------------------------------------------------------- */
+/* Alerts                                                                  */
+/* ---------------------------------------------------------------------- */
+[data-testid="stAlert"] {
+  border-radius: var(--r-md) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+[data-testid="stAlert"] p { color: var(--text) !important; }
 
 /* Tabs */
-.stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--border-subtle); }
-.stTabs [data-baseweb="tab"] { color: var(--text-muted); font-weight: 600; }
-.stTabs [aria-selected="true"] { color: var(--text-primary) !important; }
+.stTabs [data-baseweb="tab-list"] {
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--glass-border);
+  background: transparent;
+}
+.stTabs [data-baseweb="tab"] {
+  color: var(--text-muted) !important;
+  font-weight: 600 !important;
+  font-size: var(--t-base) !important;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+}
+.stTabs [data-baseweb="tab"]:hover { color: var(--text-secondary) !important; }
+.stTabs [aria-selected="true"] { color: var(--text) !important; }
+.stTabs [data-baseweb="tab-highlight"] { background: var(--accent) !important; }
 
 /* Expander */
 [data-testid="stExpander"] {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: var(--radius-md) !important;
+  background: var(--glass) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--r-md) !important;
 }
+[data-testid="stExpander"] summary { color: var(--text-secondary) !important; }
 
 /* Log console */
 .log-console {
-  background: #06070a;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-  font-size: 12.5px;
-  color: #9aa0ad;
+  background: var(--field);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: 1.65;
+  color: var(--text-secondary);
   max-height: 320px;
   overflow-y: auto;
-  line-height: 1.6;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
-/* Dividers */
-hr { border-color: var(--border-subtle) !important; }
+/* Empty states teach the interface rather than announcing absence. */
+.lk-empty { text-align: center; padding: var(--space-6) var(--space-4); }
+.lk-empty .lk-empty-mark {
+  width: 46px; height: 46px; margin: 0 auto var(--space-4);
+  border-radius: var(--r-md); display: grid; place-items: center;
+  background: var(--glass-strong); color: var(--text-muted);
+  border: 1px solid var(--glass-border);
+}
+.lk-empty-title { font-size: var(--t-md); font-weight: 620; color: var(--text); }
+.lk-empty-body { font-size: var(--t-sm); color: var(--text-muted); margin-top: 4px; }
 
-/* Toggle / checkbox accent */
-[data-testid="stCheckbox"] label span:first-child,
-[data-baseweb="switch"] {
-  accent-color: var(--accent);
+/* Skeletons, for loading regions that have a known shape. */
+.lk-skeleton {
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--glass) 25%, var(--glass-hover) 37%, var(--glass) 63%);
+  background-size: 400% 100%;
+  animation: lk-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes lk-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* Row of key/value facts — used instead of another layer of cards. */
+.lk-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4); padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--glass-border);
+}
+.lk-row:last-child { border-bottom: none; }
+.lk-row-label { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--t-base); }
+
+hr { border-color: var(--glass-border) !important; }
+a { color: var(--accent-text); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--accent); }
+
+code {
+  background: var(--field) !important;
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--accent-text) !important;
 }
 
-/* Empty state */
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
+/* Toast */
+[data-testid="stToast"] {
+  background: var(--glass-strong) !important;
+  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--r-md) !important;
+  color: var(--text) !important;
+  box-shadow: var(--shadow-raised);
 }
-.empty-state .emoji { font-size: 40px; margin-bottom: 14px; }
+
+/* ---------------------------------------------------------------------- */
+/* Responsive — structural, never fluid type                              */
+/* ---------------------------------------------------------------------- */
+/* Streamlit columns are a flex row that never wraps, so a layout tuned
+   for a wide window collapses into clipped labels and overlapping
+   controls in a narrow one. Letting the row wrap with a sensible minimum
+   is the structural fix: columns become stacked blocks instead of
+   squeezing past their content. */
+@media (max-width: 1180px) {
+  [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+  [data-testid="stColumn"] { flex: 1 1 210px !important; min-width: 210px; }
+}
+
+@media (max-width: 900px) {
+  .block-container { padding-left: var(--space-4) !important; padding-right: var(--space-4) !important; }
+  .lk-stat { min-height: 0; padding: var(--space-3) var(--space-4); }
+  .lk-stat-value { font-size: var(--t-xl); }
+}
+
+/* A label must never be cut in half. Where a control genuinely cannot fit
+   its own words, the row wraps above; this keeps the glyphs whole in the
+   meantime rather than clipping mid-word. */
+.stButton button, .stDownloadButton button { min-width: 0; }
+.stButton button p, .stDownloadButton button p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Backdrop filters are expensive and some engines lack them entirely.
+   Without this the panes would fall back to a nearly transparent fill and
+   text would sit on raw ground. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-testid="stVerticalBlockBorderWrapper"],
+  .lk-glass,
+  [data-testid="stSidebar"] { background: var(--glass-strong) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

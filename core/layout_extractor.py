@@ -70,6 +70,11 @@ _RUNNING_THRESHOLD = 0.6
 # Headings are short. Anything longer than this is prose, whatever its font.
 _MAX_HEADING_CHARS = 120
 
+# Minimum vector primitives on a page before it is worth running the
+# (expensive) table finder. A ruled table needs a grid; a page with only a
+# header rule has two or three primitives and cannot produce one.
+_MIN_DRAWINGS_FOR_TABLE = 5
+
 
 @dataclass
 class DocumentProfile:
@@ -532,6 +537,22 @@ def _clean_runs(runs: list[Run]) -> list[Run]:
 def _extract_tables(page) -> tuple[list[list[float]], list[tuple[float, float, Block]]]:
     regions: list[list[float]] = []
     blocks: list[tuple[float, float, Block]] = []
+
+    # find_tables() is by far the most expensive call in extraction —
+    # ~52ms/page against ~3ms to read the page's text, i.e. roughly two
+    # thirds of the total, or nearly a minute of pure table-hunting on a
+    # 1000-page book. Gate it on a cheap check first (~2.5ms/page).
+    #
+    # The default detection strategy looks for ruling lines, so a page
+    # without enough vector primitives to form a grid cannot yield a table
+    # anyway and the call is pure cost. A page carrying a real table has
+    # dozens of primitives; a page with just a header rule has two.
+    try:
+        if len(page.get_drawings()) < _MIN_DRAWINGS_FOR_TABLE:
+            return regions, blocks
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not inspect drawings on page %s: %s", page.number, exc)
+
     try:
         finder = page.find_tables()
         tables = list(getattr(finder, "tables", finder))

@@ -21,7 +21,7 @@ def render() -> None:
     settings = settings_service.get_all()
 
     tab_translation, tab_hybrid, tab_ocr, tab_output, tab_appearance, tab_about = st.tabs(
-        ["🌐 Translation", "🔀 Hybrid", "🔍 OCR", "📁 Output", "🎨 Appearance", "ℹ️ About"]
+        ["Translation", "Hybrid", "OCR", "Output", "Appearance", "About"]
     )
 
     with tab_translation:
@@ -70,12 +70,19 @@ def _render_translation_settings(settings: dict) -> None:
         engine = ArgosTranslatorEngine.instance()
         for source, target in config.SUPPORTED_LANGUAGE_PAIRS:
             available = engine.is_pair_available(source, target)
-            icon = "🟢" if available else "🔴"
-            st.write(f"{icon} {lang_labels[source]} → {lang_labels[target]} — {'Installed' if available else 'Not installed'}")
+            dot = "var(--success)" if available else "var(--text-muted)"
+            st.markdown(
+                f'<div class="lk-row"><span class="lk-row-label">'
+                f'<span style="background:{dot};width:7px;height:7px;border-radius:50%;'
+                f'display:inline-block"></span>'
+                f'{lang_labels[source]} &rarr; {lang_labels[target]}</span>'
+                f'<span class="lk-meta">{"Installed" if available else "Not installed"}</span></div>',
+                unsafe_allow_html=True,
+            )
 
         bc1, bc2 = st.columns(2)
         with bc1:
-            if st.button("🔄 Re-check installed models", use_container_width=True):
+            if st.button("Re-check installed models", use_container_width=True):
                 engine.refresh()
                 st.rerun()
         with bc2:
@@ -100,7 +107,7 @@ def _render_translation_settings(settings: dict) -> None:
             value=int(settings.get("max_file_size_mb", config.MAX_FILE_SIZE_MB)), step=10,
         )
 
-    if st.button("💾 Save translation settings", type="primary"):
+    if st.button("Save translation settings", type="primary"):
         settings_service.update(
             default_source_lang=default_source,
             default_target_lang=default_target,
@@ -108,7 +115,7 @@ def _render_translation_settings(settings: dict) -> None:
             translation_workers=workers,
             max_file_size_mb=max_size,
         )
-        st.toast("Translation settings saved.", icon="✅")
+        st.toast("Translation settings saved.")
 
 
 def _render_hybrid_settings(settings: dict) -> None:
@@ -151,7 +158,6 @@ def _render_hybrid_settings(settings: dict) -> None:
             st.warning(
                 "Making the online backend your default means documents are sent to "
                 "Google unless you remember to switch back per job.",
-                icon="🌐",
             )
 
         from core.online_translator import GoogleTranslateEngine, deep_translator_installed
@@ -161,7 +167,7 @@ def _render_hybrid_settings(settings: dict) -> None:
                 "The online backend needs `deep-translator`. Install it with "
                 "`pip install deep-translator`."
             )
-        elif st.button("🔌 Test Google Translate connection"):
+        elif st.button("Test Google Translate connection"):
             with st.spinner("Contacting Google..."):
                 ok, detail = GoogleTranslateEngine.instance().self_test()
             if ok:
@@ -244,7 +250,7 @@ def _render_hybrid_settings(settings: dict) -> None:
             "more context for consistent prose, but a slower response per call.",
         )
 
-        if st.button("🔌 Test Ollama connection"):
+        if st.button("Test Ollama connection"):
             refiner.configure(base_url=ollama_url, model=refine_model, timeout=refine_timeout)
             with st.spinner(f"Asking {refine_model} to polish a sample sentence..."):
                 ok, detail = refiner.self_test(settings.get("default_target_lang", "bn"))
@@ -270,7 +276,7 @@ def _render_hybrid_settings(settings: dict) -> None:
             "language model locally on every block of the document."
         )
 
-    if st.button("💾 Save hybrid settings", type="primary"):
+    if st.button("Save hybrid settings", type="primary"):
         settings_service.update(
             translation_backend=backend.value,
             refine_enabled_default=refine_default,
@@ -279,7 +285,7 @@ def _render_hybrid_settings(settings: dict) -> None:
             refine_block_chars=refine_block,
             refine_timeout=int(refine_timeout),
         )
-        st.toast("Hybrid settings saved.", icon="✅")
+        st.toast("Hybrid settings saved.")
 
 
 def _render_ocr_settings(settings: dict) -> None:
@@ -306,9 +312,9 @@ def _render_ocr_settings(settings: dict) -> None:
             help="Higher DPI improves OCR accuracy on small text but is slower and uses more memory per page.",
         )
 
-    if st.button("💾 Save OCR settings", type="primary"):
+    if st.button("Save OCR settings", type="primary"):
         settings_service.update(ocr_enabled_default=ocr_default, ocr_dpi=ocr_dpi)
-        st.toast("OCR settings saved.", icon="✅")
+        st.toast("OCR settings saved.")
 
 
 def _render_output_settings(settings: dict) -> None:
@@ -329,53 +335,113 @@ def _render_output_settings(settings: dict) -> None:
 
         bc1, bc2 = st.columns(2)
         with bc1:
-            if st.button("📂 Open output folder", use_container_width=True):
+            if st.button("Open output folder", use_container_width=True):
                 err = open_in_file_explorer(output_dir)
                 if err:
                     st.error(err)
         with bc2:
-            if st.button("💾 Save output settings", type="primary", use_container_width=True):
+            if st.button("Save output settings", type="primary", use_container_width=True):
                 Path(output_dir).mkdir(parents=True, exist_ok=True)
                 settings_service.update(
                     output_dir=output_dir,
                     default_output_formats=default_formats,
                     keep_checkpoints_after_completion=keep_checkpoints,
                 )
-                st.toast("Output settings saved.", icon="✅")
+                st.toast("Output settings saved.")
 
     st.write("")
     with st.container(border=True):
         st.markdown("##### Logs")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("📂 Open logs folder", use_container_width=True):
+            if st.button("Open logs folder", use_container_width=True):
                 err = open_in_file_explorer(str(config.LOGS_DIR))
                 if err:
                     st.error(err)
         with c2:
             if config.APP_LOG_FILE.exists():
                 st.download_button(
-                    "⬇ Export app.log", data=config.APP_LOG_FILE.read_bytes(),
+                    "Export app.log", data=config.APP_LOG_FILE.read_bytes(),
                     file_name="lekha_app.log", use_container_width=True,
                 )
 
 
 def _render_appearance_settings(settings: dict) -> None:
+    from ui.theme import ACCENTS, THEMES
+
     with st.container(border=True):
-        st.markdown("##### Theme")
-        accent_options = {"violet": "Violet", "blue": "Blue", "green": "Green", "amber": "Amber"}
-        accent = st.radio(
-            "Accent color", options=list(accent_options.keys()),
-            format_func=lambda k: accent_options[k],
-            index=list(accent_options.keys()).index(settings.get("accent_color", "violet")),
+        st.markdown("##### Appearance")
+
+        theme_labels = {"dark": "Dark", "light": "Light"}
+        current_theme = settings.get("theme", "dark")
+        theme = st.radio(
+            "Theme",
+            options=list(THEMES),
+            format_func=lambda k: theme_labels.get(k, k.title()),
+            index=list(THEMES).index(current_theme) if current_theme in THEMES else 0,
             horizontal=True,
         )
-        st.caption("Lekha uses a dark interface; a light theme isn't currently available.")
+        st.caption(
+            "Dark is the default because Lekha is usually left running for long "
+            "stretches, often overnight. Light suits a bright room. The switch in "
+            "the sidebar does the same thing."
+        )
 
-    if st.button("💾 Save appearance settings", type="primary"):
-        settings_service.update(accent_color=accent)
-        st.toast("Appearance settings saved. Refreshing...", icon="✅")
+        st.write("")
+        accent_labels = {"violet": "Violet", "blue": "Blue", "green": "Green", "amber": "Amber"}
+        accent_keys = list(ACCENTS.keys())
+        current_accent = settings.get("accent_color", "violet")
+        accent = st.radio(
+            "Accent",
+            options=accent_keys,
+            format_func=lambda k: accent_labels.get(k, k.title()),
+            index=accent_keys.index(current_accent) if current_accent in accent_keys else 0,
+            horizontal=True,
+        )
+        st.caption(
+            "The accent marks primary actions, the current page, and live state — "
+            "nothing decorative, so it stays meaningful."
+        )
+
+        # A live sample of both, so the choice can be judged before saving.
+        _render_appearance_preview(theme, accent)
+
+    if st.button("Save appearance settings", type="primary"):
+        settings_service.update(accent_color=accent, theme=theme)
+        st.toast("Appearance saved.")
         st.rerun()
+
+
+def _render_appearance_preview(theme: str, accent: str) -> None:
+    """Shows the selected theme and accent as they will actually render.
+
+    The controls above only take effect on save, so without this the user
+    is picking a colour from its name.
+    """
+    from ui.theme import build_tokens
+
+    tokens = build_tokens(theme, accent)
+    st.markdown(
+        f"<style>.lk-preview{{{tokens.split('{', 1)[1].rstrip('}')}}}</style>"
+        '<div class="lk-preview" style="margin-top:18px;border-radius:18px;overflow:hidden;'
+        'border:1px solid var(--glass-border);background:var(--ground);'
+        'background-image:var(--ground-wash);padding:18px">'
+        '<div style="background:var(--glass);border:1px solid var(--glass-border);'
+        'border-radius:14px;padding:14px 16px;backdrop-filter:blur(20px);'
+        'box-shadow:0 1px 0 0 var(--specular-soft) inset">'
+        '<div style="color:var(--text);font-weight:640;font-size:.95rem">Preview</div>'
+        '<div style="color:var(--text-muted);font-size:.8rem;margin-top:2px">'
+        "Body text, muted caption, and the accent below.</div>"
+        '<div style="display:flex;gap:8px;margin-top:12px;align-items:center">'
+        '<span style="background:var(--accent);color:var(--text-on-accent);'
+        'padding:5px 12px;border-radius:10px;font-size:.78rem;font-weight:640">Primary</span>'
+        '<span style="background:var(--accent-soft);color:var(--accent-text);'
+        'padding:5px 12px;border-radius:10px;font-size:.78rem;font-weight:640">Selected</span>'
+        '<span style="background:var(--success-soft);color:var(--success);'
+        'padding:5px 12px;border-radius:999px;font-size:.72rem;font-weight:650">Completed</span>'
+        "</div></div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_about(settings: dict) -> None:
@@ -409,14 +475,13 @@ def _render_about(settings: dict) -> None:
             st.warning(
                 "Your default backend is currently **Google Translate (online)**, so new "
                 "jobs will transmit document text unless you switch back per job.",
-                icon="🌐",
             )
 
     st.write("")
     with st.container(border=True):
         st.markdown("##### Reset")
         st.caption("Restores all settings on this page to their defaults.")
-        if st.button("⚠️ Reset settings to defaults"):
+        if st.button("Reset settings to defaults"):
             settings_service.reset_to_defaults()
-            st.toast("Settings reset to defaults.", icon="🔄")
+            st.toast("Settings reset to defaults.")
             st.rerun()

@@ -31,7 +31,7 @@ def render() -> None:
             "Search by filename", placeholder="Search history...", label_visibility="collapsed"
         )
     with c2:
-        if st.button("🗑 Clear all history", use_container_width=True):
+        if st.button("Clear all history", use_container_width=True):
             st.session_state["confirm_clear_history"] = True
 
     if st.session_state.get("confirm_clear_history"):
@@ -53,9 +53,10 @@ def render() -> None:
     if not entries:
         with st.container(border=True):
             if query:
-                empty_state("🔍", "No matches", f"Nothing in your history matches '{query}'.")
+                empty_state("search", "No matches", f"Nothing in your history matches '{query}'.")
             else:
-                empty_state("🕓", "No history yet", "Completed translations will show up here.")
+                empty_state("clock", "No history yet",
+                            "Finished translations are listed here, newest first.")
         return
 
     st.caption(f"{len(entries)} translation{'s' if len(entries) != 1 else ''}")
@@ -77,15 +78,15 @@ def render() -> None:
                 b1, b2, b3 = st.columns(3)
                 with b1:
                     out_paths = list(e.output_paths.values())
-                    if out_paths and st.button("📂", key=f"hist_open_{e.job_id}", help="Open output folder", use_container_width=True):
+                    if out_paths and st.button("Open", key=f"hist_open_{e.job_id}", help="Open the output folder", use_container_width=True):
                         err = open_in_file_explorer(str(Path(out_paths[0]).parent))
                         if err:
                             st.error(err)
                 with b2:
-                    if st.button("🔁", key=f"hist_retranslate_{e.job_id}", help="Re-translate this file", use_container_width=True):
+                    if st.button("Again", key=f"hist_retranslate_{e.job_id}", help="Translate this file again", use_container_width=True):
                         _retranslate(e)
                 with b3:
-                    if st.button("✕", key=f"hist_delete_{e.job_id}", help="Remove from history", use_container_width=True):
+                    if st.button("Remove", key=f"hist_delete_{e.job_id}", help="Remove from history", use_container_width=True):
                         history_service.delete(e.job_id)
                         st.rerun()
 
@@ -123,5 +124,5 @@ def _retranslate(entry) -> None:
     job_manager.submit_job(job)
     st.session_state["last_job_id"] = job.job_id
     st.session_state["active_page"] = "progress"
-    st.toast(f"Re-queued '{entry.filename}' for translation.", icon="🔁")
+    st.toast(f"Queued '{entry.filename}' again.")
     st.rerun()

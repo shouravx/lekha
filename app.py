@@ -40,12 +40,21 @@ _PAGES = {
 
 def main() -> None:
     app_settings = settings_service.get_all()
-    inject_theme(app_settings.get("accent_color", "violet"))
+    theme = app_settings.get("theme", "dark")
+    inject_theme(app_settings.get("accent_color", "violet"), theme)
 
     if "active_page" not in st.session_state:
         st.session_state["active_page"] = "dashboard"
 
-    selected = render_sidebar(st.session_state["active_page"])
+    selected, requested_theme = render_sidebar(st.session_state["active_page"], theme)
+
+    if requested_theme and requested_theme != theme:
+        # Streamlit reads its own theme once at server start, so the switch
+        # is persisted and the script rerun; the palette is emitted
+        # server-side on the next pass.
+        settings_service.update(theme=requested_theme)
+        st.rerun()
+
     if selected != st.session_state["active_page"]:
         st.session_state["active_page"] = selected
         st.rerun()

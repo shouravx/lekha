@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -113,12 +113,18 @@ class TranslationPipeline:
         self._failure_lock = threading.Lock()
 
         self._page_durations: list[float] = []  # rolling window for ETA
+        # Fractional page progress, updated as individual blocks finish.
+        # Without it the ETA reads "calculating..." until the very first
+        # page completes, which on a slow CPU backend is a long silence.
+        self._pages_done_fractional = 0.0
+        self._run_started_at = 0.0
 
     # -- public entrypoint ---------------------------------------------------
     def run(self) -> None:
         job = self.job
         job.started_at = job.started_at or datetime.now().isoformat(timespec="seconds")
         start_time = time.monotonic()
+        self._run_started_at = start_time
 
         try:
             self._preflight_engine()
@@ -301,6 +307,7 @@ class TranslationPipeline:
                         return
 
                     page_start = time.monotonic()
+                    self._page_base = page.page_num
                     translated_blocks = self._translate_one_page(page, pool)
                     translated_text = blocks_to_plain_text(translated_blocks)
 
@@ -396,10 +403,18 @@ class TranslationPipeline:
         if not tasks:
             return blocks
 
-        if len(tasks) == 1:
-            results = [self._translate_text_safe(tasks[0])]
-        else:
-            results = list(pool.map(self._translate_text_safe, tasks))
+        # Submitted individually rather than via pool.map so completions
+        # can be counted as they land: that is what lets the UI show a
+        # moving percentage and a real ETA within a second or two of the
+        # job starting, instead of after the first full page.
+        results: list[str] = [""] * len(tasks)
+        futures = {pool.submit(self._translate_text_safe, t): i for i, t in enumerate(tasks)}
+        completed = 0
+        for future in as_completed(futures):
+            index = futures[future]
+            results[index] = future.result()
+            completed += 1
+            self._report_block_progress(completed, len(tasks))
 
         seg_results: dict[int, dict[int, str]] = {}
         cell_results: dict[int, dict[tuple[int, int], str]] = {}
@@ -572,6 +587,18 @@ class TranslationPipeline:
             job.output_paths[fmt] = str(output_path)
             self.log(f"Saved {fmt.upper()} -> {output_path.name}")
 
+    def _report_block_progress(self, done: int, total: int) -> None:
+        """Publishes progress from part-way through a page."""
+        if total <= 0 or self.job.total_pages <= 0:
+            return
+        base = getattr(self, "_page_base", self.job.current_page)
+        self._pages_done_fractional = base + (done / total)
+        percent = min(100.0, round(self._pages_done_fractional / self.job.total_pages * 100, 1))
+        self.progress(
+            percent=percent,
+            eta_seconds=self._estimate_eta(self.job.current_page, self.job.total_pages),
+        )
+
     # -- helpers ---------------------------------------------------------
     def _percent(self, current: int, total: int) -> float:
         if total <= 0:
@@ -584,11 +611,23 @@ class TranslationPipeline:
             self._page_durations.pop(0)
 
     def _estimate_eta(self, current: int, total: int) -> Optional[float]:
-        if not self._page_durations or current >= total:
-            return 0.0 if current >= total else None
-        avg = sum(self._page_durations) / len(self._page_durations)
-        remaining = max(0, total - current)
-        return round(avg * remaining, 1)
+        if current >= total:
+            return 0.0
+
+        # Steady state: average of recent whole pages is the best signal.
+        if self._page_durations:
+            avg = sum(self._page_durations) / len(self._page_durations)
+            return round(avg * max(0, total - current), 1)
+
+        # Before the first page finishes, fall back to wall-clock elapsed
+        # over fractional pages completed. Rough, but it turns a long
+        # "calculating..." into a number that converges as work proceeds.
+        if self._pages_done_fractional > 0 and self._run_started_at:
+            elapsed = time.monotonic() - self._run_started_at
+            per_page = elapsed / self._pages_done_fractional
+            return round(per_page * max(0.0, total - self._pages_done_fractional), 1)
+
+        return None
 
     @staticmethod
     def _format_eta(seconds: Optional[float]) -> str:

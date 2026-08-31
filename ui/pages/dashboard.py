@@ -11,7 +11,8 @@ from services.checkpoint_service import checkpoint_manager
 from services.file_service import human_readable_size, open_in_file_explorer
 from services.history_service import history_service
 from services.queue_service import job_manager
-from ui.components import empty_state, language_label, stat_tile, status_badge_html
+from ui.components import empty_state, language_label, section, stat_tile, status_badge_html
+from ui.icons import icon
 from ui.theme import page_header
 
 
@@ -53,23 +54,24 @@ def render() -> None:
 
     cols = st.columns(4)
     with cols[0]:
-        stat_tile("📄", str(stats["total_pages_translated"]), "Pages translated", "violet")
+        stat_tile("pages", str(stats["total_pages_translated"]), "Pages translated", "accent")
     with cols[1]:
-        stat_tile("✅", str(stats["completed_jobs"]), "Completed", "green")
+        stat_tile("check-circle", str(stats["completed_jobs"]), "Completed", "success")
     with cols[2]:
-        stat_tile("⚡", "1" if active_job_id else "0", "Active job" + ("s" if queued_count else ""), "blue")
+        stat_tile("activity", "1" if active_job_id else "0", "Active job" + ("s" if queued_count else ""), "info")
     with cols[3]:
-        stat_tile("⏱", _format_duration(stats["total_time_seconds"]), "Total processing time", "amber")
+        stat_tile("timer", _format_duration(stats["total_time_seconds"]), "Total processing time", "warning")
 
     st.write("")
     left, right = st.columns([2, 1], gap="large")
 
     with left:
-        st.markdown("#### Recent translations")
+        section("Recent translations", "clock")
         entries = history_service.get_all()[:5]
         if not entries:
             with st.container(border=True):
-                empty_state("📭", "No translations yet", "Head to the Translator tab to get started.")
+                empty_state("file-text", "No translations yet",
+                            "Open Translator, drop in a PDF, and it will appear here.")
         else:
             for e in entries:
                 with st.container(border=True):
@@ -94,21 +96,21 @@ def render() -> None:
                                 st.error(err)
 
     with right:
-        st.markdown("#### Quick actions")
+        section("Quick actions", "sparkle")
         with st.container(border=True):
-            if st.button("🌐  New translation", use_container_width=True, type="primary"):
+            if st.button("New translation", use_container_width=True, type="primary"):
                 st.session_state["active_page"] = "translator"
                 st.rerun()
-            if st.button("📂  Open outputs folder", use_container_width=True):
+            if st.button("Open outputs folder", use_container_width=True):
                 err = open_in_file_explorer(str(config.OUTPUTS_DIR))
                 if err:
                     st.error(err)
-            if st.button("🕓  View full history", use_container_width=True):
+            if st.button("View full history", use_container_width=True):
                 st.session_state["active_page"] = "history"
                 st.rerun()
 
         st.write("")
-        st.markdown("#### Engine status")
+        section("Engine status", "shield")
         with st.container(border=True):
             _render_engine_status()
 
@@ -123,7 +125,11 @@ def _render_recovery_banner() -> None:
         return
 
     with st.container(border=True):
-        st.markdown("##### ⚠️ Interrupted translation detected")
+        st.markdown(
+            f'<div class="lk-row-label" style="color:var(--warning);font-weight:640">'
+            f'{icon("alert", 16)}Interrupted translation detected</div>',
+            unsafe_allow_html=True,
+        )
         st.caption(
             "It looks like the app closed before a translation finished. "
             "Your progress was saved — you can pick up right where it stopped."
@@ -160,8 +166,15 @@ def _render_engine_status() -> None:
     for source, target in pairs:
         available = engine.is_pair_available(source, target)
         any_missing = any_missing or not available
-        icon = "🟢" if available else "🔴"
-        st.write(f"{icon} {language_label(source)} → {language_label(target)}")
+        dot = "var(--success)" if available else "var(--text-muted)"
+        st.markdown(
+            f'<div class="lk-row"><span class="lk-row-label">'
+            f'<span class="lk-dot" style="background:{dot};width:7px;height:7px;'
+            f'border-radius:50%;display:inline-block"></span>'
+            f'{language_label(source)} &rarr; {language_label(target)}</span>'
+            f'<span class="lk-meta">{"Installed" if available else "Not installed"}</span></div>',
+            unsafe_allow_html=True,
+        )
 
     if any_missing:
         st.caption("Missing models? Run `python scripts/download_models.py` once (needs internet).")

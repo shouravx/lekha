@@ -18,6 +18,7 @@ from services.file_service import (
 )
 from services.queue_service import job_manager
 from services.settings_service import settings_service
+from ui.icons import icon
 from ui.theme import page_header
 
 
@@ -36,7 +37,12 @@ def render() -> None:
         )
         if uploaded_files:
             for f in uploaded_files:
-                st.markdown(f"📄 **{f.name}** &nbsp;·&nbsp; {human_readable_size(f.size)}", unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="lk-row"><span class="lk-row-label">{icon("file-text", 16)}'
+                    f'{f.name}</span>'
+                    f'<span class="lk-meta">{human_readable_size(f.size)}</span></div>',
+                    unsafe_allow_html=True,
+                )
 
     st.write("")
     backend, refine_enabled = _render_engine_picker(settings)
@@ -66,7 +72,7 @@ def render() -> None:
             with c2:
                 st.write("")
                 st.write("")
-                if st.button("⇄", help="Swap languages"):
+                if st.button("Swap", help="Swap the source and target languages"):
                     st.session_state["src_lang"], st.session_state["tgt_lang"] = (
                         st.session_state["tgt_lang"],
                         st.session_state["src_lang"],
@@ -167,7 +173,7 @@ def render() -> None:
 
     st.write("")
     start_disabled = not uploaded_files or not output_formats or source_lang == target_lang
-    if st.button("🚀  Start Translation", type="primary", use_container_width=True, disabled=start_disabled):
+    if st.button("Start translation", type="primary", use_container_width=True, disabled=start_disabled):
         if backend is TranslationBackend.GOOGLE:
             settings_service.update(
                 online_chunk_max_chars=chunk_chars, online_translation_workers=workers
@@ -227,7 +233,6 @@ def _render_engine_picker(settings: dict) -> tuple[TranslationBackend, bool]:
                 "Google's servers to be translated. Don't use this backend for "
                 "confidential, personal, or unpublished material — use Argos, which "
                 "never transmits anything.",
-                icon="🌐",
             )
             from core.online_translator import deep_translator_installed
 
@@ -273,7 +278,6 @@ def _render_engine_picker(settings: dict) -> tuple[TranslationBackend, bool]:
                     "run, but the polish pass will be skipped. Start it with "
                     "`ollama serve`, then pull the model with "
                     f"`ollama pull {refine_model}`.",
-                    icon="⚠️",
                 )
             else:
                 installed = refiner.list_models()
@@ -282,7 +286,6 @@ def _render_engine_picker(settings: dict) -> tuple[TranslationBackend, bool]:
                         f"Ollama is running but `{refine_model}` isn't installed. "
                         f"Pull it with `ollama pull {refine_model}`, or pick an "
                         "installed model in Settings → Translation.",
-                        icon="⚠️",
                     )
                 else:
                     st.caption(
@@ -329,4 +332,4 @@ def _submit_jobs(
         submitted += 1
 
     if submitted:
-        st.toast(f"Queued {submitted} file(s) for translation.", icon="🚀")
+        st.toast(f"Queued {submitted} file(s) for translation.")

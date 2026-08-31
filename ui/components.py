@@ -1,5 +1,10 @@
-"""ui/components.py — small, reusable UI building blocks shared across
-pages: stat tiles, status badges, the sidebar nav, log consoles, etc.
+"""ui/components.py — the shared vocabulary: rail, tiles, badges, empty
+states, log console.
+
+Every component here exists so the same idea looks the same everywhere.
+A status reads as a status on the dashboard, in the queue and in history,
+because all three call `status_badge_html`, not because three pages
+happened to style a span the same way.
 """
 
 from __future__ import annotations
@@ -8,100 +13,118 @@ from typing import Optional
 
 import streamlit as st
 
+import config
 from models.enums import JobStatus
+from ui.icons import button_icon_css, icon
 
+# key, icon, label
 NAV_ITEMS: list[tuple[str, str, str]] = [
-    ("dashboard", "🏠", "Dashboard"),
-    ("translator", "🌐", "Translator"),
-    ("progress", "⚡", "Progress"),
-    ("history", "🕓", "History"),
-    ("settings", "⚙️", "Settings"),
+    ("dashboard", "dashboard", "Dashboard"),
+    ("translator", "globe", "Translator"),
+    ("progress", "activity", "Progress"),
+    ("history", "clock", "History"),
+    ("settings", "settings", "Settings"),
 ]
 
 
-def render_sidebar(active_page: str) -> str:
-    """Renders the sidebar brand + nav and returns the (possibly new)
-    active page key based on what the user clicked.
+def _nav_css(active_page: str) -> str:
+    """Icons for every nav item, plus the active item's treatment.
+
+    Both are emitted here rather than living in style.css because both
+    depend on runtime values — which icon belongs to which widget key, and
+    which page is current.
+
+    The active rule is anchored to `body` on purpose. This <style> is
+    rendered inside the sidebar, which Streamlit places earlier in the DOM
+    than the main stylesheet, so at equal specificity the global
+    `.stButton button:hover` rule wins on source order and the highlight
+    would vanish under the pointer. `:hover` is matched explicitly for the
+    same reason.
     """
+    rules = [
+        button_icon_css(f'[data-testid="stSidebar"] .st-key-nav_{key} button', name)
+        for key, name, _ in NAV_ITEMS
+    ]
+
+    active = f'body [data-testid="stSidebar"] .st-key-nav_{active_page} button'
+    rules.append(
+        f"{active},{active}:hover{{"
+        "background:var(--accent-soft,var(--glass-hover))!important;"
+        "border-color:var(--accent)!important;"
+        "color:var(--text)!important;font-weight:650!important;"
+        "box-shadow:inset 0 1px 0 var(--specular-soft);}"
+    )
+    rules.append(f"{active} p,{active}:hover p{{color:var(--text)!important;}}")
+    rules.append(f"{active}::before{{color:var(--accent-text);}}")
+
+    # Theme switch and its icon.
+    rules.append(button_icon_css('[data-testid="stSidebar"] .st-key-theme_toggle button', "sun", 16))
+    rules.append(
+        '[data-testid="stSidebar"] .st-key-theme_toggle button{'
+        "font-size:var(--t-xs)!important;padding:0.3rem 0.6rem!important;"
+        "color:var(--text-muted)!important;}"
+    )
+    return "<style>" + "".join(rules) + "</style>"
+
+
+def render_sidebar(active_page: str, theme: str = "dark") -> tuple[str, Optional[str]]:
+    """Renders the rail. Returns (selected_page, requested_theme_or_None)."""
+    requested_theme: Optional[str] = None
+
     with st.sidebar:
         st.markdown(
-            """
-            <div class="sidebar-brand">
-                <div class="logo">📜</div>
-                <div>
-                    <div class="title">Lekha</div>
-                    <div class="subtitle">Offline PDF Translator</div>
-                </div>
-            </div>
-            """,
+            '<div class="lk-brand">'
+            f'<div class="lk-mark">{icon("pages", 19)}</div>'
+            '<div><div class="lk-name">Lekha</div>'
+            '<div class="lk-tag">Document translation</div></div>'
+            "</div>",
             unsafe_allow_html=True,
         )
 
-        # The active item is highlighted by targeting the class Streamlit
-        # puts on the widget's own wrapper (st-key-<key>). The previous
-        # approach — emitting a <div class="nav-active"> around the
-        # st.button call — could never work: Streamlit renders raw HTML in
-        # its own container, so the div ended up as the button's *sibling*
-        # rather than its parent, and the rule matched nothing. It also
-        # cost two empty block elements per item, which is what left 50px
-        # of dead space between every nav button.
-        # This <style> lives inside the sidebar, which Streamlit renders
-        # earlier in the DOM than the main stylesheet — so at equal
-        # specificity the global `.stButton button:hover { ... !important }`
-        # rule wins on source order and the highlight disappears the
-        # moment the pointer is over the active item. The leading `body`
-        # raises specificity above it, and the :hover selector is matched
-        # explicitly so the active item keeps its colour while hovered.
-        active_selector = (
-            f'body [data-testid="stSidebar"] .st-key-nav_{active_page} button'
-        )
-        st.markdown(
-            "<style>"
-            f"{active_selector}, {active_selector}:hover {{"
-            "background: var(--accent-violet-soft) !important;"
-            "color: var(--text-primary) !important;"
-            "border-color: var(--accent) !important;"
-            "font-weight: 700 !important;"
-            "}"
-            f"{active_selector} p, {active_selector}:hover p {{"
-            "color: var(--text-primary) !important;"
-            "}"
-            "</style>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(_nav_css(active_page), unsafe_allow_html=True)
 
         selected = active_page
-        for key, icon, label in NAV_ITEMS:
-            if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
+        for key, _icon_name, label in NAV_ITEMS:
+            if st.button(label, key=f"nav_{key}", use_container_width=True):
                 selected = key
 
-        import config
+        # The switch names the theme it will move to, not the one you are
+        # in: a control is labelled with its action.
+        next_theme = "light" if theme == "dark" else "dark"
+        st.markdown('<div class="lk-rail-foot"></div>', unsafe_allow_html=True)
+        if st.button(
+            f"Switch to {next_theme}",
+            key="theme_toggle",
+            use_container_width=True,
+            help="Changes the appearance of the whole app.",
+        ):
+            requested_theme = next_theme
 
         st.markdown(
-            '<div class="sidebar-footer">'
-            f"v{config.APP_VERSION} · Offline by default</div>",
+            f'<div class="lk-meta" style="padding:2px 4px">v{config.APP_VERSION} · '
+            "Offline by default</div>",
             unsafe_allow_html=True,
         )
 
-    return selected
+    return selected, requested_theme
 
 
-def stat_tile(icon: str, value: str, label: str, accent: str = "violet") -> None:
-    colors = {
-        "violet": ("rgba(139,109,240,0.16)", "#8b6df0"),
-        "blue": ("rgba(91,157,255,0.16)", "#5b9dff"),
-        "green": ("rgba(62,207,142,0.16)", "#3ecf8e"),
-        "amber": ("rgba(240,168,77,0.16)", "#f0a84d"),
+def stat_tile(icon_name: str, value: str, label: str, tone: str = "accent") -> None:
+    """A single figure with its label. Deliberately not a card of icon +
+    heading + body text: the number is the content."""
+    tones = {
+        "accent": ("var(--accent-soft, var(--glass-strong))", "var(--accent-text)"),
+        "success": ("var(--success-soft)", "var(--success)"),
+        "info": ("var(--info-soft)", "var(--info)"),
+        "warning": ("var(--warning-soft)", "var(--warning)"),
     }
-    bg, fg = colors.get(accent, colors["violet"])
+    bg, fg = tones.get(tone, tones["accent"])
     st.markdown(
-        f"""
-        <div class="glass-card stat-tile">
-            <div class="stat-icon" style="background:{bg}; color:{fg};">{icon}</div>
-            <div class="stat-value">{value}</div>
-            <div class="stat-label">{label}</div>
-        </div>
-        """,
+        f'<div class="lk-glass lk-stat">'
+        f'<div class="lk-stat-icon" style="background:{bg};color:{fg}">{icon(icon_name, 18)}</div>'
+        f'<div class="lk-stat-value">{value}</div>'
+        f'<div class="lk-stat-label">{label}</div>'
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -117,8 +140,8 @@ _BADGE_LABELS = {
 
 
 def status_badge_html(status: str) -> str:
-    css_class, label = _BADGE_LABELS.get(status, ("cancelled", status.title()))
-    return f'<span class="badge badge-{css_class}"><span class="badge-dot"></span>{label}</span>'
+    css_class, label = _BADGE_LABELS.get(status, ("cancelled", str(status).title()))
+    return f'<span class="lk-badge lk-badge-{css_class}"><span class="lk-dot"></span>{label}</span>'
 
 
 def status_badge(status: str) -> None:
@@ -126,28 +149,42 @@ def status_badge(status: str) -> None:
 
 
 def language_label(code: str) -> str:
-    import config
-
     return config.SUPPORTED_LANGUAGES.get(code, code.upper())
 
 
 def log_console(lines: list[str], height: Optional[int] = None) -> None:
     if not lines:
-        st.markdown('<div class="log-console">No log output yet.</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="log-console">Waiting for the first log line…</div>',
+            unsafe_allow_html=True,
+        )
         return
-    joined = "\n".join(lines[-300:])
+    # Escaped because log lines carry filenames and error text straight
+    # from disk, and this is rendered as raw HTML.
+    import html
+
+    joined = html.escape("\n".join(lines[-300:]))
     style = f"max-height:{height}px;" if height else ""
     st.markdown(f'<div class="log-console" style="{style}">{joined}</div>', unsafe_allow_html=True)
 
 
-def empty_state(emoji: str, title: str, subtitle: str = "") -> None:
+def empty_state(icon_name: str, title: str, subtitle: str = "") -> None:
+    """Empty states teach the interface — they say what to do next, not
+    that there is nothing here."""
+    body = f'<div class="lk-empty-body">{subtitle}</div>' if subtitle else ""
     st.markdown(
-        f"""
-        <div class="empty-state">
-            <div class="emoji">{emoji}</div>
-            <div style="font-size:17px; color:#f2f3f7; font-weight:600;">{title}</div>
-            <div style="font-size:13.5px; margin-top:4px;">{subtitle}</div>
-        </div>
-        """,
+        f'<div class="lk-empty">'
+        f'<div class="lk-empty-mark">{icon(icon_name, 22)}</div>'
+        f'<div class="lk-empty-title">{title}</div>{body}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def section(title: str, icon_name: str = "") -> None:
+    """A section heading in the shared vocabulary."""
+    mark = f'{icon(icon_name, 16)}' if icon_name else ""
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:8px;margin:26px 0 10px;'
+        f'color:var(--text);font-weight:640;font-size:var(--t-md)">{mark}{title}</div>',
         unsafe_allow_html=True,
     )

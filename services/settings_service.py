@@ -34,6 +34,9 @@ DEFAULTS: dict[str, Any] = {
     "ocr_dpi": config.OCR_RENDER_DPI,
     "max_file_size_mb": config.MAX_FILE_SIZE_MB,
     "accent_color": "violet",
+    # Dark is the default because of the use scene, not by category habit:
+    # this app is most often left running on a home machine overnight.
+    "theme": "dark",
     "keep_checkpoints_after_completion": False,
     # --- Hybrid pipeline (both stages opt-in; defaults preserve the
     # fully-offline behaviour Lekha shipped with) ---------------------
