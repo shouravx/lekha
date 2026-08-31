@@ -36,6 +36,7 @@ from typing import Callable, Optional
 
 import config
 from core import chunker, document_builder
+from core.document_model import Block, BlockKind, Run, blocks_to_plain_text
 from core.pdf_extractor import PDFCorruptedError, PDFExtractor
 from core.translator_engine import (
     BackendUnresponsiveError,
@@ -258,7 +259,8 @@ class TranslationPipeline:
     def _translate_pages(self) -> None:
         job = self.job
 
-        with PDFExtractor(job.input_path) as extractor:
+        assets_dir = checkpoint_manager.assets_dir(job.job_id)
+        with PDFExtractor(job.input_path, structured=True, assets_dir=assets_dir) as extractor:
             job.total_pages = extractor.page_count
 
             checkpoint_manager.init_checkpoint(
@@ -299,9 +301,12 @@ class TranslationPipeline:
                         return
 
                     page_start = time.monotonic()
-                    translated_text = self._translate_one_page(page, pool)
+                    translated_blocks = self._translate_one_page(page, pool)
+                    translated_text = blocks_to_plain_text(translated_blocks)
 
-                    checkpoint_manager.append_page(job.job_id, page.page_num, translated_text)
+                    checkpoint_manager.append_page(
+                        job.job_id, page.page_num, translated_text, translated_blocks
+                    )
                     checkpoint_manager.update_progress(
                         job.job_id,
                         last_completed_page=page.page_num,
@@ -330,51 +335,156 @@ class TranslationPipeline:
                     if page.had_error:
                         self.log(f"Warning: page {page.page_num + 1} had an extraction error and was skipped.")
 
-    def _translate_one_page(self, page, pool: ThreadPoolExecutor) -> str:
+    def _translate_one_page(self, page, pool: ThreadPoolExecutor) -> list[Block]:
+        """Translates one page, preserving its structure.
+
+        Returns Blocks rather than a string so headings, list items,
+        tables and images survive translation and reach the output
+        builders intact.
+        """
         job = self.job
-        raw_text = page.text
+        blocks = list(page.blocks)
 
         if page.needs_ocr and job.ocr_enabled:
-            raw_text = self._ocr_page(page.page_num) or raw_text
+            ocr_text = self._ocr_page(page.page_num)
+            if ocr_text.strip():
+                # OCR yields plain text with no recoverable structure.
+                blocks = _paragraphs_from_text(ocr_text)
 
-        if not raw_text or not raw_text.strip():
-            return ""
+        if not blocks:
+            # Either structured extraction found nothing usable or the
+            # extractor is in plain-text mode; fall back to the page's
+            # text so a page is never silently dropped.
+            blocks = _paragraphs_from_text(page.text)
 
-        chunks = chunker.split_into_chunks(raw_text, max_chars=self.max_chunk_chars)
-        if not chunks:
-            return ""
+        if not blocks:
+            return []
 
-        if len(chunks) == 1:
-            translated_chunks = [self._translate_chunk_safe(chunks[0])]
-        else:
-            translated_chunks = list(pool.map(self._translate_chunk_safe, chunks))
+        translated = self._translate_blocks(blocks, pool)
 
         if self.refine_enabled and self.refiner is not None:
-            return self._refine_page(translated_chunks)
+            translated = self._refine_blocks(translated)
 
-        return "\n".join(translated_chunks)
+        return translated
 
-    def _refine_page(self, translated_chunks: list[str]) -> str:
-        """Runs the polish pass over one page's translated chunks.
+    def _translate_blocks(self, blocks: list[Block], pool: ThreadPoolExecutor) -> list[Block]:
+        """Translates every piece of text on a page in one batch.
 
-        Chunks are regrouped into larger blocks first — the refiner's cost
-        is dominated by per-call overhead, and a bigger block also gives
-        the editor more context to keep the prose consistent.
+        All translatable strings across all blocks are gathered first so
+        the worker pool sees the whole page at once — translating block by
+        block would serialise on the many short blocks (headings, list
+        items) that structured extraction produces.
         """
-        blocks = chunker.group_into_blocks(translated_chunks, self.refine_block_chars)
-        if not blocks:
-            return ""
+        tasks: list[str] = []
+        plan: list[tuple[str, int, object]] = []
 
-        refined: list[str] = []
+        for index, block in enumerate(blocks):
+            if block.kind is BlockKind.IMAGE:
+                continue
+            if block.kind is BlockKind.TABLE:
+                for row_index, row in enumerate(block.rows):
+                    for col_index, cell in enumerate(row):
+                        if cell.strip():
+                            plan.append(("cell", index, (row_index, col_index)))
+                            tasks.append(cell)
+                continue
+            for seg_index, segment in enumerate(block.translation_segments()):
+                if segment.text.strip():
+                    plan.append(("seg", index, seg_index))
+                    tasks.append(segment.text)
+
+        if not tasks:
+            return blocks
+
+        if len(tasks) == 1:
+            results = [self._translate_text_safe(tasks[0])]
+        else:
+            results = list(pool.map(self._translate_text_safe, tasks))
+
+        seg_results: dict[int, dict[int, str]] = {}
+        cell_results: dict[int, dict[tuple[int, int], str]] = {}
+        for (kind, index, position), result in zip(plan, results):
+            if kind == "seg":
+                seg_results.setdefault(index, {})[position] = result
+            else:
+                cell_results.setdefault(index, {})[position] = result
+
+        out: list[Block] = []
+        for index, block in enumerate(blocks):
+            if block.kind is BlockKind.IMAGE:
+                out.append(block)
+                continue
+            if block.kind is BlockKind.TABLE:
+                rows = [list(row) for row in block.rows]
+                for (row_index, col_index), value in cell_results.get(index, {}).items():
+                    rows[row_index][col_index] = value
+                out.append(Block(kind=BlockKind.TABLE, rows=rows))
+                continue
+            segments = block.translation_segments()
+            translated = [
+                seg_results.get(index, {}).get(i, segments[i].text)
+                for i in range(len(segments))
+            ]
+            out.append(block.with_translated_segments(translated))
+        return out
+
+    def _translate_text_safe(self, text: str) -> str:
+        """Translates one string, chunking it first if it exceeds the
+        backend's per-request size."""
+        if len(text) <= self.max_chunk_chars:
+            return self._translate_chunk_safe(text)
+        chunks = chunker.split_into_chunks(text, max_chars=self.max_chunk_chars)
+        if not chunks:
+            return text
+        return " ".join(self._translate_chunk_safe(chunk) for chunk in chunks)
+
+    def _refine_blocks(self, blocks: list[Block]) -> list[Block]:
+        """Runs the polish pass over a page's translated blocks.
+
+        Refinement is per block rather than over the page as a whole: the
+        model is asked to rewrite prose, and it cannot be relied on to
+        preserve block boundaries, so feeding it several blocks at once
+        would make it impossible to map its answer back onto the
+        document's structure.
+
+        Headings and short list items are skipped — there is nothing to
+        polish in three words, and a small model is at its least reliable
+        on fragments that short.
+        """
+        refined: list[Block] = []
         for block in blocks:
-            if self.cancel_event.is_set():
-                # Cancellation is checked between blocks as well as between
-                # pages: a slow model can spend minutes inside one page, and
-                # the user shouldn't have to wait it out.
+            if block.kind in (BlockKind.IMAGE, BlockKind.TABLE):
                 refined.append(block)
                 continue
-            refined.append(self.refiner.refine(block, self.job.target_lang))
-        return "\n".join(refined)
+            if block.kind in (BlockKind.TITLE, BlockKind.HEADING):
+                refined.append(block)
+                continue
+
+            text = block.text
+            if len(text.strip()) < config.REFINE_MIN_BLOCK_CHARS or self.cancel_event.is_set():
+                # Cancellation is checked here as well as between pages: a
+                # slow model can spend minutes on one page and the user
+                # shouldn't have to wait it out.
+                refined.append(block)
+                continue
+
+            if len(text) <= self.refine_block_chars:
+                polished = self.refiner.refine(text, self.job.target_lang)
+            else:
+                pieces = chunker.split_into_chunks(text, max_chars=self.refine_block_chars)
+                polished = " ".join(
+                    self.refiner.refine(piece, self.job.target_lang) for piece in pieces
+                )
+
+            bold, italic = block.dominant_style
+            refined.append(Block(
+                kind=block.kind,
+                runs=[Run(text=polished, bold=bold, italic=italic)],
+                level=block.level,
+                indent=block.indent,
+                list_depth=block.list_depth,
+            ))
+        return refined
 
     def _translate_chunk_safe(self, chunk: str) -> str:
         try:
@@ -436,15 +546,25 @@ class TranslationPipeline:
             output_path = out_dir / f"{base_name}.{fmt}"
             self.log(f"Writing {fmt.upper()} output...")
 
-            pages_iter = checkpoint_manager.read_pages(job.job_id)
-            pages_sorted = iter(sorted(pages_iter, key=lambda t: t[0]))
+            if fmt == "txt":
+                pages_sorted = iter(sorted(
+                    checkpoint_manager.read_pages(job.job_id), key=lambda t: t[0]
+                ))
+                document_builder.build_txt(pages_sorted, output_path)
+                job.output_paths[fmt] = str(output_path)
+                self.log(f"Saved {fmt.upper()} -> {output_path.name}")
+                continue
+
+            # DOCX and PDF rebuild from the structured form, so headings,
+            # lists, tables and images are reproduced rather than flattened.
+            blocks_sorted = iter(sorted(
+                checkpoint_manager.read_structured_pages(job.job_id), key=lambda t: t[0]
+            ))
 
             if fmt == "docx":
-                document_builder.build_docx(pages_sorted, output_path, job.target_lang, title=title)
+                document_builder.build_docx(blocks_sorted, output_path, job.target_lang, title=title)
             elif fmt == "pdf":
-                document_builder.build_pdf(pages_sorted, output_path, job.target_lang, title=title)
-            elif fmt == "txt":
-                document_builder.build_txt(pages_sorted, output_path)
+                document_builder.build_pdf(blocks_sorted, output_path, job.target_lang, title=title)
             else:
                 logger.warning("Unknown output format '%s', skipping.", fmt)
                 continue
@@ -482,3 +602,19 @@ class TranslationPipeline:
             return f"{minutes}m {sec}s"
         hours, minutes = divmod(minutes, 60)
         return f"{hours}h {minutes}m"
+
+
+def _paragraphs_from_text(text: str) -> list[Block]:
+    """Wraps plain text in paragraph blocks.
+
+    The fallback path for pages with no recoverable structure — OCR
+    output, or a layout the extractor could not parse — so such a page
+    still flows through the structured pipeline instead of vanishing.
+    """
+    if not text or not text.strip():
+        return []
+    return [
+        Block(kind=BlockKind.PARAGRAPH, runs=[Run(text=line.strip())])
+        for line in text.splitlines()
+        if line.strip()
+    ]

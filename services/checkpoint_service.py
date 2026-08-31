@@ -52,6 +52,18 @@ class CheckpointManager:
     def _pages_path(self, job_id: str) -> Path:
         return self._job_dir(job_id) / "pages.jsonl"
 
+    def assets_dir(self, job_id: str) -> Path:
+        """Where images extracted from the source PDF are staged.
+
+        Kept inside the job's checkpoint folder so it shares the resume
+        system's lifecycle: images survive a crash and a resume, and are
+        cleaned up with the rest of the checkpoint once the job's output
+        has been written.
+        """
+        d = self._job_dir(job_id) / "assets"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     # -- lifecycle -------------------------------------------------------
     def init_checkpoint(self, job_id: str, meta: dict[str, Any]) -> None:
         """Creates (or resets, if none of the job's settings changed) the
@@ -91,14 +103,26 @@ class CheckpointManager:
         data.update(extra)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def append_page(self, job_id: str, page_num: int, text: str) -> None:
-        """Appends one page's translated text as a single JSON line.
+    def append_page(self, job_id: str, page_num: int, text: str,
+                    blocks: Optional[list] = None) -> None:
+        """Appends one page's translated content as a single JSON line.
         Append-mode + flush keeps this safe against abrupt process kills:
         previously written lines are never touched.
+
+        `text` is always written, so a checkpoint stays readable by the
+        plain-text reader and by any older build of the app. `blocks`
+        carries the structured form (headings, lists, tables, images) used
+        to rebuild formatted output; it is simply absent from checkpoints
+        written before structured extraction existed.
         """
+        from core.document_model import blocks_to_json
+
+        record: dict[str, Any] = {"page": page_num, "text": text}
+        if blocks:
+            record["blocks"] = blocks_to_json(blocks)
         path = self._pages_path(job_id)
         with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"page": page_num, "text": text}, ensure_ascii=False))
+            f.write(json.dumps(record, ensure_ascii=False))
             f.write("\n")
             f.flush()
 
@@ -120,6 +144,43 @@ class CheckpointManager:
                     yield int(obj["page"]), obj.get("text", "")
                 except (json.JSONDecodeError, KeyError):
                     logger.warning("Skipping malformed checkpoint line in job %s", job_id)
+
+    def read_structured_pages(self, job_id: str) -> Iterator[tuple[int, list]]:
+        """Streams (page_num, blocks) for the formatted output builders.
+
+        A checkpoint written before structured extraction — or a page that
+        genuinely had no recoverable structure — has no "blocks" key. Its
+        stored text is wrapped in plain paragraph blocks so an old,
+        resumed job still produces output instead of an empty document.
+        """
+        from core.document_model import Block, BlockKind, Run, blocks_from_json
+
+        path = self._pages_path(job_id)
+        if not path.exists():
+            return
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    page_num = int(obj["page"])
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    logger.warning("Skipping malformed checkpoint line in job %s", job_id)
+                    continue
+
+                raw_blocks = obj.get("blocks")
+                if raw_blocks:
+                    yield page_num, blocks_from_json(raw_blocks)
+                    continue
+
+                text = obj.get("text", "")
+                yield page_num, [
+                    Block(kind=BlockKind.PARAGRAPH, runs=[Run(text=para)])
+                    for para in text.split("\n")
+                    if para.strip()
+                ]
 
     def has_resumable_job(self, job_id: str) -> bool:
         data = self.load_checkpoint(job_id)

@@ -13,12 +13,14 @@ Design goals (per spec):
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Iterator, Optional
 
 import fitz  # PyMuPDF
 
 import config
+from core.document_model import Block, blocks_to_plain_text
 from services.logger_service import get_logger
 
 logger = get_logger("pdf_extractor")
@@ -35,6 +37,12 @@ class ExtractedPage:
     needs_ocr: bool
     had_error: bool = False
     error_message: Optional[str] = None
+    # Structured view of the page: headings, list items, tables, images.
+    # Empty when the extractor is running in plain-text mode, or when the
+    # page carries no recoverable structure (e.g. a scanned page bound for
+    # OCR). `text` stays populated either way, so anything that only wants
+    # words keeps working unchanged.
+    blocks: list[Block] = field(default_factory=list)
 
 
 class PDFExtractor:
@@ -46,9 +54,16 @@ class PDFExtractor:
                 ...
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, structured: bool = True,
+                 assets_dir: Optional[Path] = None) -> None:
         self.path = path
+        self.structured = structured
+        self.assets_dir = Path(assets_dir) if assets_dir else None
         self._doc: Optional[fitz.Document] = None
+        self._profile = None
+        # Tracks images already emitted so a letterhead logo repeated on
+        # every page appears once in the reflowed output.
+        self._seen_images: set[str] = set()
 
     def __enter__(self) -> "PDFExtractor":
         try:
@@ -82,9 +97,15 @@ class PDFExtractor:
         for page_num in range(start_page, doc.page_count):
             try:
                 page = doc.load_page(page_num)
-                text = page.get_text("text") or ""
+                blocks = self._extract_blocks(page, page_num)
+                if blocks:
+                    text = blocks_to_plain_text(blocks)
+                else:
+                    text = page.get_text("text") or ""
                 needs_ocr = self._looks_scanned(page, text)
-                yield ExtractedPage(page_num=page_num, text=text, needs_ocr=needs_ocr)
+                yield ExtractedPage(
+                    page_num=page_num, text=text, needs_ocr=needs_ocr, blocks=blocks
+                )
                 # Explicitly drop the reference; large image-heavy pages can
                 # otherwise keep decoded pixmaps alive longer than needed.
                 del page
@@ -97,6 +118,43 @@ class PDFExtractor:
                     had_error=True,
                     error_message=str(exc),
                 )
+
+    def profile(self):
+        """Document-wide layout measurements, computed once and cached.
+
+        Structure has to be judged relative to the document it came from —
+        a 9pt body and a 14pt body are both "normal" somewhere — so this
+        samples the document before any page is classified.
+        """
+        from core.layout_extractor import profile_document
+
+        if self._profile is None:
+            self._profile = profile_document(self._doc)
+        return self._profile
+
+    def _extract_blocks(self, page: "fitz.Page", page_num: int) -> list[Block]:
+        """Structured read of one page. Never raises: a page whose layout
+        cannot be parsed falls back to plain text rather than failing the
+        job, matching the resilience contract of the rest of this class.
+        """
+        if not self.structured:
+            return []
+        try:
+            from core.layout_extractor import extract_page_blocks
+
+            return extract_page_blocks(
+                page,
+                self.profile(),
+                self.assets_dir,
+                self._seen_images,
+                is_first_page=(page_num == 0),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Structured extraction failed on page %d, falling back to plain text: %s",
+                page_num, exc,
+            )
+            return []
 
     @staticmethod
     def _looks_scanned(page: "fitz.Page", text: str) -> bool:

@@ -125,6 +125,12 @@ REFINE_MAX_RETRIES: int = 1
 # refining so one call covers several chunks' worth of prose.
 REFINE_BLOCK_CHARS: int = 1200
 
+# Blocks shorter than this are passed through unrefined. Headings and
+# two-word list items have no prose to improve, and a small model is at
+# its least reliable on fragments that short — it tends to answer them
+# rather than edit them.
+REFINE_MIN_BLOCK_CHARS: int = 25
+
 # Guardrails — a small model can hallucinate, answer in the wrong
 # language, or refuse. If refined output violates these bounds we discard
 # it and keep the raw machine translation for that block.
